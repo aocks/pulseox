@@ -84,3 +84,19 @@ Within each section, there will be an entry like:
 with =<path_to_file>= being both the (relative) path to the posted
 file formatted as a link in either markdown or org format so if the
 user clicks on it, they will be taken to the give file.
+
+* Development Guidelines
+
+The following are some development requirements.
+
+- Use click for any command line interface work.
+- Make sure to follow pep8 guidelines (especially keeping lines less than 79 characters).
+- Try not to repeat code; use functions.
+- It is good to keep lines less than 79 characters, but you do not
+  need to go crazy. For example, not every function parameter needs
+  to be on a separate line. Things are more readable if you keep
+  functions to less than 40 lines. So put multiple parameters on the
+  same line as long as that line is less than 79 characters.
+- Related to the above, try to break up long functions to have helper
+  functions so that most functions are less than 40 lines unless there
+  is a good reason to be longer.
