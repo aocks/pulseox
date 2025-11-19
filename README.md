@@ -42,22 +42,33 @@ You can then use a dashboard creation tool to collect together all the
 posted content to get a summary using something like:
 
 ``` python
-from pulseox import tools, specs
+import datetime
+from pulseox import tools
 
-dashboard = tools.PulseOxDashboard(token='my_token')
+token = ... # GitHub person access token
 
-example_spec = tools.PulseOxSpec(
-    path_to_file,  # Path to file in GitHub repo
-    schedule       # Either a datetime.timedelta or a cron string 
-)
+owner, repo = ... # Set owner and repo for GitHub
 
-spec_list = ... # list of PulseOxSpec objects like above
+spec_list = [  # Example of job specifications we are tracking
+    tools.PulseOxSpec(owner=owner, repo=repo, path='example.md',
+	    schedule=datetime.timedelta(minutes=10)),
+	tools.PulseOxSpec(owner=owner, repo=repo, path='missing.md',
+        schedule=datetime.timedelta(minutes=1m)),  # example of missed update
+	tools.PulseOxSpec(owner=owner, repo=repo, path='trade.md',
+        schedule=datetime.timedelta(minutes=60*24))
+        ]
+		
+dashboard = tools.PulseOxDashboard(
+    token=token, owner=owner, repo=repo, spec_list=spec_list)
+	
+dashboard.fill_summary()  # Check GitHub for job status + update
 
-summary = dashboard.make_summary(owner, repo, spec_list, mode='md')
-result = dashboard.write_summary(  # Write input `summary` to GitHub
-    owner, repo, summary, path_to_summary  # repo at `path_to_summary`
-)
-assert result.status_code == 200
+print(dashboard.summary.text)  # Show text summary for local view
+
+# Write summary in markdown and JSON formats to GitHub for easy viewing
+mresp, jresp = dashboard.write_summary('summary.md')
+
+assert mresp.status_code == 200 and jresp.status_code == 200
 
 ```
 
