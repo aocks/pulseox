@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pulseox"
 version = "0.1.0"
 description = "Python tools to create, update, and monitor a system pulse and dashboard using GitHub"
-readme = "README.org"
+readme = "README.md"
 requires-python = ">=3.8"
 authors = [
     {name = "PulseOx Contributors"}
