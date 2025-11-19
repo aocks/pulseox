@@ -1,12 +1,28 @@
 """Tools for creating, updating, and monitoring GitHub pulse dashboards."""
 
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Union
 import re
 
 import requests
 from dateutil import parser as dateparser
+from croniter import croniter
+
+
+class PulseOxError(Exception):
+    """Base exception for PulseOx errors."""
+    pass
+
+
+class ValidationError(PulseOxError):
+    """Exception raised for validation errors."""
+    pass
+
+
+class GitHubAPIError(PulseOxError):
+    """Exception raised for GitHub API errors."""
+    pass
 
 
 class PulseOxSpec:
@@ -16,6 +32,9 @@ class PulseOxSpec:
         path_to_file: Path to the file in the GitHub repository
         schedule: Either a datetime.timedelta or a cron string specifying
                   the expected update frequency
+
+    Raises:
+        ValidationError: If path_to_file is empty or schedule is invalid
     """
 
     def __init__(
@@ -23,6 +42,23 @@ class PulseOxSpec:
         path_to_file: str,
         schedule: Union[timedelta, str]
     ):
+        if not path_to_file or not path_to_file.strip():
+            raise ValidationError("path_to_file cannot be empty")
+
+        if not isinstance(schedule, (timedelta, str)):
+            raise ValidationError(
+                "schedule must be a timedelta or cron string"
+            )
+
+        if isinstance(schedule, str):
+            if not schedule.strip():
+                raise ValidationError("schedule string cannot be empty")
+            # Validate cron string
+            if not croniter.is_valid(schedule):
+                raise ValidationError(
+                    f"Invalid cron string: {schedule}"
+                )
+
         self.path_to_file = path_to_file
         self.schedule = schedule
 
@@ -32,9 +68,17 @@ class PulseOxClient:
 
     Args:
         token: GitHub personal access token for API authentication
+
+    Raises:
+        ValidationError: If token is empty
     """
 
+    VALID_STATUSES = {'OK', 'ERROR', 'WARNING'}
+
     def __init__(self, token: str):
+        if not token or not token.strip():
+            raise ValidationError("token cannot be empty")
+
         self.token = token
         self.base_url = "https://api.github.com"
         self.headers = {
@@ -58,12 +102,20 @@ class PulseOxClient:
             repo: Repository name
             path_to_file: Path to the file in the repository
             content: Content to write to the file
-            status: Status code (e.g., 'OK', 'ERROR')
+            status: Status code (must be 'OK', 'ERROR', or 'WARNING')
             optional_note: Optional short text note
 
         Returns:
             Response object from the GitHub API
+
+        Raises:
+            ValidationError: If parameters are invalid
+            GitHubAPIError: If GitHub API request fails
         """
+        self._validate_post_params(
+            owner, repo, path_to_file, content, status
+        )
+
         metadata = self._create_metadata(
             path_to_file, status, optional_note
         )
@@ -72,6 +124,33 @@ class PulseOxClient:
         return self._update_file(
             owner, repo, path_to_file, full_content
         )
+
+    def _validate_post_params(
+        self,
+        owner: str,
+        repo: str,
+        path_to_file: str,
+        content: str,
+        status: str
+    ) -> None:
+        """Validate post parameters.
+
+        Raises:
+            ValidationError: If any parameter is invalid
+        """
+        if not owner or not owner.strip():
+            raise ValidationError("owner cannot be empty")
+        if not repo or not repo.strip():
+            raise ValidationError("repo cannot be empty")
+        if not path_to_file or not path_to_file.strip():
+            raise ValidationError("path_to_file cannot be empty")
+        if content is None:
+            raise ValidationError("content cannot be None")
+        if status not in self.VALID_STATUSES:
+            raise ValidationError(
+                f"status must be one of {self.VALID_STATUSES}, "
+                f"got: {status}"
+            )
 
     def _create_metadata(
         self,
@@ -89,13 +168,14 @@ class PulseOxClient:
         Returns:
             Formatted metadata string
         """
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         if path_to_file.endswith('.md'):
             header = "# Metadata"
         elif path_to_file.endswith('.org'):
             header = "* Metadata"
         else:
+            # Default to markdown for unknown extensions
             header = "# Metadata"
 
         metadata_lines = [
@@ -126,19 +206,38 @@ class PulseOxClient:
 
         Returns:
             Response from GitHub API
+
+        Raises:
+            GitHubAPIError: If the API request fails
         """
         url = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}"
 
         # Get current file SHA if it exists
-        get_response = requests.get(url, headers=self.headers)
+        try:
+            get_response = requests.get(
+                url, headers=self.headers, timeout=30
+            )
+        except requests.RequestException as e:
+            raise GitHubAPIError(
+                f"Failed to fetch file info: {e}"
+            )
+
         sha = None
         if get_response.status_code == 200:
-            sha = get_response.json().get("sha")
+            try:
+                sha = get_response.json().get("sha")
+            except (ValueError, KeyError) as e:
+                raise GitHubAPIError(
+                    f"Failed to parse GitHub response: {e}"
+                )
 
         # Prepare update payload
-        encoded_content = base64.b64encode(
-            content.encode('utf-8')
-        ).decode('utf-8')
+        try:
+            encoded_content = base64.b64encode(
+                content.encode('utf-8')
+            ).decode('utf-8')
+        except UnicodeEncodeError as e:
+            raise ValidationError(f"Failed to encode content: {e}")
 
         payload = {
             "message": f"Update {path}",
@@ -148,7 +247,14 @@ class PulseOxClient:
         if sha:
             payload["sha"] = sha
 
-        return requests.put(url, json=payload, headers=self.headers)
+        try:
+            response = requests.put(
+                url, json=payload, headers=self.headers, timeout=30
+            )
+        except requests.RequestException as e:
+            raise GitHubAPIError(f"Failed to update file: {e}")
+
+        return response
 
 
 class PulseOxDashboard:
@@ -156,9 +262,18 @@ class PulseOxDashboard:
 
     Args:
         token: GitHub personal access token for API authentication
+
+    Raises:
+        ValidationError: If token is empty
     """
 
+    VALID_MODES = {'md', 'org'}
+    VALID_STATUSES = {'ERROR', 'MISSING', 'OK'}
+
     def __init__(self, token: str):
+        if not token or not token.strip():
+            raise ValidationError("token cannot be empty")
+
         self.token = token
         self.base_url = "https://api.github.com"
         self.headers = {
@@ -183,12 +298,31 @@ class PulseOxDashboard:
 
         Returns:
             Formatted summary string
+
+        Raises:
+            ValidationError: If parameters are invalid
         """
+        if not owner or not owner.strip():
+            raise ValidationError("owner cannot be empty")
+        if not repo or not repo.strip():
+            raise ValidationError("repo cannot be empty")
+        if mode not in self.VALID_MODES:
+            raise ValidationError(
+                f"mode must be one of {self.VALID_MODES}, got: {mode}"
+            )
+        if not isinstance(spec_list, list):
+            raise ValidationError("spec_list must be a list")
+
         errors = []
         missing = []
         ok = []
 
         for spec in spec_list:
+            if not isinstance(spec, PulseOxSpec):
+                raise ValidationError(
+                    "All items in spec_list must be PulseOxSpec"
+                )
+
             entry = self._check_spec(owner, repo, spec, mode)
             if entry:
                 status = entry['status']
@@ -198,6 +332,11 @@ class PulseOxDashboard:
                     missing.append(entry)
                 elif status == 'OK':
                     ok.append(entry)
+                else:
+                    # This should not happen if _check_spec is correct
+                    raise PulseOxError(
+                        f"Unexpected status from _check_spec: {status}"
+                    )
 
         return self._format_summary(errors, missing, ok, mode)
 
@@ -218,20 +357,51 @@ class PulseOxDashboard:
 
         Returns:
             Response from GitHub API
+
+        Raises:
+            ValidationError: If parameters are invalid
+            GitHubAPIError: If the API request fails
         """
-        url = f"{self.base_url}/repos/{owner}/{repo}/contents/"
-        url += path_to_summary
+        if not owner or not owner.strip():
+            raise ValidationError("owner cannot be empty")
+        if not repo or not repo.strip():
+            raise ValidationError("repo cannot be empty")
+        if summary is None:
+            raise ValidationError("summary cannot be None")
+        if not path_to_summary or not path_to_summary.strip():
+            raise ValidationError("path_to_summary cannot be empty")
+
+        url = (
+            f"{self.base_url}/repos/{owner}/{repo}/contents/"
+            f"{path_to_summary}"
+        )
 
         # Get current file SHA if exists
-        get_response = requests.get(url, headers=self.headers)
+        try:
+            get_response = requests.get(
+                url, headers=self.headers, timeout=30
+            )
+        except requests.RequestException as e:
+            raise GitHubAPIError(
+                f"Failed to fetch summary file info: {e}"
+            )
+
         sha = None
         if get_response.status_code == 200:
-            sha = get_response.json().get("sha")
+            try:
+                sha = get_response.json().get("sha")
+            except (ValueError, KeyError) as e:
+                raise GitHubAPIError(
+                    f"Failed to parse GitHub response: {e}"
+                )
 
         # Encode and prepare payload
-        encoded_content = base64.b64encode(
-            summary.encode('utf-8')
-        ).decode('utf-8')
+        try:
+            encoded_content = base64.b64encode(
+                summary.encode('utf-8')
+            ).decode('utf-8')
+        except UnicodeEncodeError as e:
+            raise ValidationError(f"Failed to encode summary: {e}")
 
         payload = {
             "message": f"Update summary at {path_to_summary}",
@@ -241,7 +411,16 @@ class PulseOxDashboard:
         if sha:
             payload["sha"] = sha
 
-        return requests.put(url, json=payload, headers=self.headers)
+        try:
+            response = requests.put(
+                url, json=payload, headers=self.headers, timeout=30
+            )
+        except requests.RequestException as e:
+            raise GitHubAPIError(
+                f"Failed to write summary: {e}"
+            )
+
+        return response
 
     def _check_spec(
         self,
@@ -261,9 +440,24 @@ class PulseOxDashboard:
         Returns:
             Dictionary with status info or None
         """
-        url = f"{self.base_url}/repos/{owner}/{repo}/contents/"
-        url += spec.path_to_file
-        response = requests.get(url, headers=self.headers)
+        url = (
+            f"{self.base_url}/repos/{owner}/{repo}/contents/"
+            f"{spec.path_to_file}"
+        )
+
+        try:
+            response = requests.get(
+                url, headers=self.headers, timeout=30
+            )
+        except requests.RequestException:
+            # Network error, treat as missing
+            return {
+                'status': 'MISSING',
+                'path': spec.path_to_file,
+                'note': '',
+                'updated': None,
+                'mode': mode,
+            }
 
         if response.status_code != 200:
             return {
@@ -275,9 +469,22 @@ class PulseOxDashboard:
             }
 
         # Decode content
-        content = base64.b64decode(
-            response.json()['content']
-        ).decode('utf-8')
+        try:
+            response_data = response.json()
+            if 'content' not in response_data:
+                raise KeyError("No content in response")
+            content = base64.b64decode(
+                response_data['content']
+            ).decode('utf-8')
+        except (ValueError, KeyError, UnicodeDecodeError):
+            # Failed to decode, treat as missing metadata
+            return {
+                'status': 'MISSING',
+                'path': spec.path_to_file,
+                'note': '',
+                'updated': None,
+                'mode': mode,
+            }
 
         # Parse metadata
         metadata = self._parse_metadata(content)
@@ -291,17 +498,28 @@ class PulseOxDashboard:
                 'mode': mode,
             }
 
-        # Check if update is within schedule
-        is_within_schedule = self._is_within_schedule(
-            metadata.get('updated'), spec.schedule
-        )
+        # Determine status based on metadata and schedule
+        metadata_status = metadata.get('status', '').upper()
 
-        if metadata.get('status') == 'ERROR':
+        # ERROR status takes precedence
+        if metadata_status == 'ERROR':
             status = 'ERROR'
-        elif not is_within_schedule:
-            status = 'MISSING'
         else:
-            status = 'OK'
+            # Check if update is within schedule
+            is_within = self._is_within_schedule(
+                metadata.get('updated'), spec.schedule
+            )
+
+            if not is_within:
+                status = 'MISSING'
+            elif metadata_status == 'OK':
+                status = 'OK'
+            elif metadata_status == 'WARNING':
+                # Treat WARNING as OK if within schedule
+                status = 'OK'
+            else:
+                # Unknown status, treat as missing
+                status = 'MISSING'
 
         return {
             'status': status,
@@ -367,15 +585,34 @@ class PulseOxDashboard:
         except (ValueError, TypeError):
             return False
 
-        now = datetime.utcnow()
+        # Make sure we have a timezone-aware datetime
+        if updated.tzinfo is None:
+            # Assume UTC if no timezone
+            updated = updated.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
 
         # For timedelta schedules
         if isinstance(schedule, timedelta):
-            return (now - updated.replace(tzinfo=None)) <= schedule
-
-        # For cron strings, we'd need a cron parser
-        # For now, return True (would need croniter package)
-        return True
+            return (now - updated) <= schedule
+        elif isinstance(schedule, str):
+            # For cron strings, calculate next expected run time
+            # based on the last update
+            try:
+                cron = croniter(schedule, updated)
+                next_run = cron.get_next(datetime)
+                # If we're past the next expected run, it's missing
+                return now <= next_run
+            except (ValueError, KeyError) as e:
+                # Invalid cron or other error, be conservative
+                raise ValidationError(
+                    f"Failed to parse cron schedule: {e}"
+                )
+        else:
+            # This should not happen if PulseOxSpec validates
+            raise ValidationError(
+                f"Invalid schedule type: {type(schedule)}"
+            )
 
     def _format_summary(
         self,
@@ -432,8 +669,13 @@ class PulseOxDashboard:
         """
         if mode == 'md':
             header = f"# {title}"
-        else:  # org
+        elif mode == 'org':
             header = f"* {title}"
+        else:
+            # Should not happen if mode is validated
+            raise ValidationError(
+                f"Invalid mode in _format_section: {mode}"
+            )
 
         lines = [header, ""]
 
@@ -459,8 +701,13 @@ class PulseOxDashboard:
         # Create link based on mode
         if mode == 'md':
             link = f"[{path}]({path})"
-        else:  # org
+        elif mode == 'org':
             link = f"[[{path}][{path}]]"
+        else:
+            # Should not happen if mode is validated
+            raise ValidationError(
+                f"Invalid mode in _format_entry: {mode}"
+            )
 
         parts = [f"- {link}"]
         if note:
