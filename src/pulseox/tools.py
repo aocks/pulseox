@@ -613,7 +613,6 @@ class PulseOxDashboard(BaseModel):
                     f"Failed to parse GitHub response: {e}")
 
         try:  # Encode and prepare payload
-            import pdb; pdb.set_trace()#FIXME
             encoded_content = base64.b64encode(
                 content.encode('utf-8')).decode('utf-8')
         except UnicodeEncodeError as e:
