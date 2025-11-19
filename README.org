@@ -1,0 +1,86 @@
+
+* Introduction
+
+The =pulseox= project provides python tools to create, update, and monitor a
+system pulse and dashboard using GitHub.
+
+* Usage
+
+** Client
+
+You can instantiate a =pulseox= client and use it to update a page in
+a GitHub project. The client will use the GitHub API and an access
+token to post content as shown below:
+
+#+BEGIN_SRC python
+from pulseox import tools
+
+client = tools.PulseOxClient(token='my_token')
+content = '''Some content
+
+- data I want to keep track of
+- for dashboard monitoring'''
+
+result = client.post(owner, repo, path_to_file, content, status='OK',
+                     optional_note='short text')
+assert result.status_code == 200
+#+END_SRC
+
+The server will automatically include metadata at the bottom of the
+file indicating the following:
+
+- status (as provided to the client)
+- updated (a UTC timestamp for when the last update occurred
+
+This metadata will be automatically added at the end of the file and
+will be preceded with the string "# Metadata" if the path to the file
+ends in =.md= or with "* Metadata" if the path to the file ends in
+=.org=.
+
+** Dashboard
+
+You can then use a dashboard creation tool to collect together all the
+posted content to get a summary using something like:
+
+#+BEGIN_SRC python
+from pulseox import tools, specs
+
+dashboard = tools.PulseOxDashboard(token='my_token')
+
+example_spec = tools.PulseOxSpec(
+    path_to_file,  # Path to file in GitHub repo
+    schedule       # Either a datetime.timedelta or a cron string 
+)
+
+spec_list = ... # list of PulseOxSpec objects like above
+
+summary = dashboard.make_summary(owner, repo, spec_list, mode='md')
+result = dashboard.write_summary(  # Write input `summary` to GitHub
+    owner, repo, summary, path_to_summary  # repo at `path_to_summary`
+)
+assert result.status_code == 200
+
+#+END_SRC
+
+The summary will have sections for the following status codes:
+
+- ERROR: This comes first and consists of all client posts with status
+  of =ERROR=.
+- MISSING: This comes second and consists of all PulseOxSpec instances
+  where an update has not been provided within the given schedule.
+- OK: This comes last and consists of all PulseOxSpec instances which
+  were posted with status OK within the required schedule.
+
+The summary will be in markdown format if =mode= was set to ='md'= and
+org-mode format if =mode= was set to ='org'=. Empty sections will be
+omitted.
+
+Within each section, there will be an entry like:
+
+#+BEGIN_EXAMPLE
+- <path_to_file> <note> <update_time>
+#+END_EXAMPLE
+
+with =<path_to_file>= being both the (relative) path to the posted
+file formatted as a link in either markdown or org format so if the
+user clicks on it, they will be taken to the give file.
