@@ -466,8 +466,9 @@ class PulseOxSummary(BaseModel):
         unknown = set(VALID_STATUSES) - set(self.status)
         if unknown:
             raise ValueError(f'Unknown status fields: {unknown}')
-        sections = [self._format_section(n, self.status.get(n, []), mode)
-                    for n in VALID_STATUSES]
+        section_info = [(n, self.status.get(n, [])) for n in VALID_STATUSES]
+        sections = [self._format_section(n, s, mode)
+                    for n, s in section_info if s]
         self.text = '\n\n'.join(sections)
 
     def _format_section(
