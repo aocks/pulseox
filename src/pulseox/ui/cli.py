@@ -40,8 +40,8 @@ def check():
 @click.option('--content', default=None, type=str, help=(
     'Optional content to include in status report.'))
 @common_options()
-def file(path, hc_path, note, content, owner, repo, token):
-    """Check if file exists and/or was modified recently.
+def exists(path, hc_path, note, content, owner, repo, token):
+    """Check if file exists (OK) or not (ERROR).
     """
     if os.path.exists(path):
         note = note or 'file exists'
