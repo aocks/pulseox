@@ -284,7 +284,7 @@ class PulseOxClient:
         path_to_file: str,
         content: str,
         status: str = "OK",
-        optional_note: str = ""
+        note: str = ""
     ) -> requests.Response:
         """Post content to a file in a GitHub repository.
 
@@ -294,7 +294,7 @@ class PulseOxClient:
             path_to_file: Path to the file in the repository
             content: Content to write to the file
             status: Status code (must be 'OK', 'ERROR')
-            optional_note: Optional short text note
+            note: Optional short text note
 
         Returns:
             Response object from the GitHub API
@@ -308,7 +308,7 @@ class PulseOxClient:
         )
 
         metadata = self._create_metadata(
-            path_to_file, status, optional_note
+            path_to_file, status, note
         )
         full_content = f"{content}\n\n{metadata}"
 
@@ -347,14 +347,14 @@ class PulseOxClient:
         self,
         path_to_file: str,
         status: str,
-        optional_note: str
+        note: str
     ) -> str:
         """Create metadata section for the file.
 
         Args:
             path_to_file: Path to determine file format
             status: Status code
-            optional_note: Optional note
+            note: Optional note
 
         Returns:
             Formatted metadata string
@@ -375,8 +375,8 @@ class PulseOxClient:
             f"- updated: {timestamp}",
         ]
 
-        if optional_note:
-            metadata_lines.append(f"- note: {optional_note}")
+        if note:
+            metadata_lines.append(f"- note: {note}")
 
         return "\n".join(metadata_lines)
 
