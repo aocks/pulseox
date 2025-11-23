@@ -32,33 +32,49 @@ def check():
 
 
 @check.command()
-@click.option('--path', type=click.Path(), required=True)
+@click.option('--path', type=click.Path(), required=True, multiple=True)
 @click.option('--hc-path', required=True, type=str, help=(
     'Relative path on GitHub to health check file.'))
 @click.option('--note', default=None, type=str, help=(
     'Optional note to include with status update.'))
-@click.option('--content', default=None, type=str, help=(
-    'Optional content to include in status report.'))
+@click.option('--content', default='# File Check\n{bad_list}\n{good_list}\n',
+              help=('Optional content template for status report.'))
 @common_options()
 def exists(path, hc_path, note, content, owner, repo, token):
-    """Check if file exists (OK) or not (ERROR).
+    """Check if files exists (OK) or not (ERROR).
+
+You can provide the --path option multiple times to check multiple
+paths for existence. We will report an OK condition only if all
+paths provided exist.    
     """
-    if os.path.exists(path):
-        note = note or 'file exists'
-        content = content or f'File {path=} exists.'
-        status = 'OK'
-    else:
-        note = note or 'file does not exist'
-        content = content or f'File {path=} does not exist.'
+    good, bad = [], []
+    for name in path:
+        if os.path.exists(name):
+            good.append(name)
+        else:
+            bad.append(name)
+
+    if any(bad):
+        note = f'{len(bad)} bad paths'
         status = 'ERROR'
+        bad_list = '\n## Bad Paths\n' + '\n  - '.join([''] + bad) + '\n'
+    else:
+        bad_list = ''
+        note = 'all paths good'
+        status = 'OK'
+    good_list = '## Good Paths\n' + '\n  - '.join([''] + good) if good else ''
+
+    content = content.format(bad=bad, good=good,
+                             bad_list=bad_list, good_list=good_list)
 
     if token:
         PulseOxClient(token=token).post(
             owner=owner, repo=repo, path_to_file=hc_path,
             content=content, status=status, note=note)
     else:
-        click.echo('No token provided so no status report submitted.'
-                   f'\n{note=}\n{content=}')
+        click.echo('No token provided so no status report submitted.')
+        click.echo(f'Note: {note}')
+        click.echo(f'Content:\n{content}')
 
 
 if __name__ == '__main__':
