@@ -29,7 +29,6 @@ class PulseOxSummary(BaseModel):
     text: Annotated[str, Field(default='', description=(
         'Text summary contents for the dashboard'))]
 
-
     def fill(self, mode: str = 'md') -> str:
         """Format the summary output.
         """
@@ -134,9 +133,9 @@ class PulseOxDashboard(BaseModel):
     _latest_response: Annotated[
         Optional[SkipValidation[requests.Response]], Field(
             description=('Latest response object from interacting with'
-                     ' GitHub. This is just a convenience to help verify or'
-                     ' investigate response from the GitHub API.'),
-            default=None, exclude=True)]
+                         ' GitHub. This is just a convenience to help'
+                         ' verify or investigate response from the'
+                         ' GitHub API.'), default=None, exclude=True)]
 
 
     def fill_spec_list(self, github_file='summary.md.json', ref='main'):
@@ -210,10 +209,8 @@ class PulseOxDashboard(BaseModel):
         self.summary.fill()
         return self
 
-    def write_summary(
-        self,
-        path_to_summary: str = 'summary.md',
-        path_to_summary_json: Optional[str] = None):
+    def write_summary(self, path_to_summary: str = 'summary.md',
+                      path_to_summary_json: Optional[str] = None):
         """Write summary to a file in GitHub repository.
 
         Args:
