@@ -690,7 +690,7 @@ class MockGitHubServer:
             self.server_thread = None
 
         self.server = None
-        print("Mock GitHub server stopped")
+        print("\nMock GitHub server stopped\n")
 
     def get_base_url(self) -> str:
         """Get the base URL for the server.
