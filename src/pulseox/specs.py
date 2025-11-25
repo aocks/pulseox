@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 import pytz
 
 VALID_MODES = {'md', 'org'}
-VALID_STATUSES = ('OK', 'ERROR', 'MISSING')
+VALID_STATUSES = ('ERROR', 'MISSING', 'OK')
 
 JOB_REPORT = ('GOOD', 'BAD', 'NOT_REPORTED')
 
