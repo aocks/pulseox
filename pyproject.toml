@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pulseox"
-version = "0.1.0"
+version = "0.1.1"
 description = "Tools to create, update, and monitor a system pulse and dashboard."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -36,10 +36,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/emin-shopper/pulseox"
-Repository = "https://github.com/emin-shopper/pulseox"
-Issues = "https://github.com/emin-shopper/pulseox/issues"
-Documentation = "https://github.com/emin-shopper/pulseox#readme"
+Homepage = "https://github.com/aocks/pulseox"
+Repository = "https://github.com/aocks/pulseox"
+Issues = "https://github.com/aocks/pulseox/issues"
+Documentation = "https://github.com/aocks/pulseox#readme"
 
 [dependency-groups]
 dev = [
