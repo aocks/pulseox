@@ -49,6 +49,8 @@ dev = [
     "pylint",
     "ruff>=0.13.3",
     "flask>=2.0.0",
+    "build>=0.10.0",
+    "twine>=4.0.0",
 ]
 
 [project.scripts]
