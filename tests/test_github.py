@@ -21,7 +21,7 @@ class TestGitHub:
     _tmpdir = None
     _server = None
     _base_url = None
-    
+
     @classmethod
     def setup_class(cls):
         if not cls._tokens:
@@ -61,7 +61,7 @@ class TestGitHub:
         resp = client.post(path_to_file=path,
                            content='test update', **rinfo)
         assert resp.status_code in (200, 201)
-        
+
     def test_basic_example(self):
         rinfo = {'owner': 'testowner', 'repo': 'testrepo'}
         spec_list = self.make_test_spec_list(rinfo)
@@ -77,17 +77,21 @@ class TestGitHub:
         assert list(dashboard.summary.status['OK']) == ['quick_example.md']
 
         change_pattern = (
-            r'^# Changes\s+- \[quick_example\.md\]\(quick_example\.md\)'
+            r'# Changes\s+'
+            r'- \[quick_example\.md\]\(quick_example\.md\)'
             r' MISSING --> OK \d{4}-\d{2}-\d{2} \d{2}:\d{2} EST\s+')
         main_pattern = (
-            r'# OK\s+- \[quick_example\.md\]\(quick_example\.md\)'
-            r' \d{4}-\d{2}-\d{2} \d{2}:\d{2} EST\s+'
-            r'# MISSING\s+- \[long_example\.md\]\(long_example\.md\)'
-            r' error: \(status_code=404\) NOT FOUND None')
+            r'# MISSING\s+'
+            r'- \[long_example\.md\]\(long_example\.md\)'
+            r' error: \(status_code=404\) NOT FOUND None\s+'
+            r'# OK\s+'
+            r'- \[quick_example\.md\]\(quick_example\.md\)'
+            r' \d{4}-\d{2}-\d{2} \d{2}:\d{2} EST')
+
         mtch = re.search(change_pattern + main_pattern,
                          dashboard.summary.text, re.MULTILINE)
         assert mtch
-        
+
         dashboard.compute_summary()  # Recompute to verify that
         mtch = re.search('^' + main_pattern,  # Change section omitted
                          dashboard.summary.text, re.MULTILINE)
@@ -97,13 +101,11 @@ class TestGitHub:
         """Now run a test where we lookup spec_list from GitHub.
         """
 
-        rinfo = {'owner': 'testowner', 'repo': 'testrepo'}        
+        rinfo = {'owner': 'testowner', 'repo': 'testrepo'}
         dashboard = PulseOxDashboard(token=self._tokens[0], **rinfo)
         dashboard._base_url = self._base_url
         dashboard.get_remote_data()
         dashboard.compute_summary()
         assert list(dashboard.summary.status['OK']) == ['quick_example.md']
         assert list(dashboard.summary.status['MISSING']) == [
-            'long_example.md']        
-        
-        
+            'long_example.md']

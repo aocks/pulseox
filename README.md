@@ -3,6 +3,35 @@
 The `pulseox`{.verbatim} project provides python tools to create,
 update, and monitor a system pulse and dashboard using GitHub.
 
+You can have your clients update a project page on GitHub with current
+status and have a unified dashboard which collects together the status
+of all projects (including projects which should have reported but
+have not).
+
+PulseOx can use the `notifier` package to automatically notify you
+when project status changes.
+
+# Install
+
+You can install as usual via something like
+```
+pip install pulseox
+```
+or
+```
+uv add pulseox
+```
+or if you want to develop in a fresh environment you can do something like
+```
+python3 -m venv .venv       # Create venv to get pip.
+source .venv/bin/activate   # Activate venv.
+pip install uv              # Install uv
+uv venv --seed --clear      # Recreate venv since uv likes that
+source .venv/bin/activate   # Source new venv
+pip install uv              # Add uv to venv if you don't have global uv
+uv sync                     # Sync dependancies.
+```
+
 # Usage
 
 ## Client
@@ -12,29 +41,28 @@ page in a GitHub project. The client will use the GitHub API and an
 access token to post content as shown below:
 
 ``` python
-from pulseox import tools
+>>> from pulseox.client import PulseOxClient
+>>> client = PulseOxClient(token=YOUR_GITHUB_PAT)
+>>> content = ('Some content\n'
+...            '- data I want to keep track of\n'
+...            '- for dashboard monitoring\n')
+>>> result = client.post(
+...   owner, repo, 'example_project_page.md', content,  # required arguments
+...   report='GOOD', note='')  #  these can be omitted and have defaults
+>>> result.status_code in (200, 201)
+True
+>>> _ = client.post(owner, repo, 'alt_example.md', content, report='BAD',
+...       note='We can report BAD runs as well')
 
-client = tools.PulseOxClient(token='my_token')
-content = '''Some content
-
-- data I want to keep track of
-- for dashboard monitoring'''
-
-result = client.post(owner, repo, path_to_file, content, status='OK',
-                     optional_note='short text')
-assert result.status_code == 200
 ```
 
-The server will automatically include metadata at the bottom of the file
+The client will automatically include metadata at the bottom of the file
 indicating the following:
 
--   status (as provided to the client)
--   updated (a UTC timestamp for when the last update occurred
+- report: (as provided to the client)
+- updated: (timestamp for when the last update occurred)
+- note:  (note provided to client)
 
-This metadata will be automatically added at the end of the file and
-will be preceded with the string \"# Metadata\" if the path to the file
-ends in `.md`{.verbatim} or with \"\* Metadata\" if the path to the file
-ends in `.org`{.verbatim}.
 
 ## Dashboard
 
@@ -42,40 +70,71 @@ You can then use a dashboard creation tool to collect together all the
 posted content to get a summary using something like:
 
 ``` python
-import datetime
-from pulseox import tools
-
-token = ... # GitHub person access token
-
-owner, repo = ... # Set owner and repo for GitHub
-
-spec_list = [  # Example of job specifications we are tracking
-    tools.PulseOxSpec(owner=owner, repo=repo, path='example.md',
-	    schedule=datetime.timedelta(minutes=10)),
-	tools.PulseOxSpec(owner=owner, repo=repo, path='missing.md',
-        schedule=datetime.timedelta(minutes=1m)),  # example of missed update
-	tools.PulseOxSpec(owner=owner, repo=repo, path='trade.md',
-        schedule=datetime.timedelta(minutes=60*24))
-        ]
-		
-dashboard = tools.PulseOxDashboard(
-    token=token, owner=owner, repo=repo, spec_list=spec_list)
-	
-dashboard.fill_summary()  # Check GitHub for job status + update
-
-print(dashboard.summary.text)  # Show text summary for local view
-
-# Write summary in markdown and JSON formats to GitHub for easy viewing
-mresp, jresp = dashboard.write_summary('summary.md')
-
-assert mresp.status_code == 200 and jresp.status_code == 200
+>>> import datetime
+>>> from pulseox.specs import PulseOxSpec
+>>> from pulseox.dashboard import PulseOxDashboard
+>>> spec_list = [  # Example of job specifications we are tracking
+...     PulseOxSpec(owner=owner, repo=repo, path='example_project_page.md',
+...	      schedule=datetime.timedelta(minutes=10)),
+...     PulseOxSpec(owner=owner, repo=repo, path='alt_example.md',
+...	      schedule=datetime.timedelta(hours=10)),
+...     PulseOxSpec(owner=owner, repo=repo, path='missing.md',
+...       schedule='* * * * *')]  # can use cron string for schedule
+>>> dashboard = PulseOxDashboard(
+...     token=YOUR_GITHUB_PAT, owner=owner, repo=repo, spec_list=spec_list
+... ).write_summary(force_refresh=True)  # Write summary to github
+>>> print(dashboard.summary.text)  # Get text summary for local view
+# Changes
+- [alt_example.md](alt_example.md) None --> ERROR ...
+- [missing.md](missing.md) None --> MISSING None
+- [example_project_page.md](example_project_page.md) None --> OK ...
+# ERROR
+- [alt_example.md](alt_example.md) We can report BAD runs as well ...
+# MISSING
+- [missing.md](missing.md) error: (status_code=404) NOT FOUND None
+# OK
+- [example_project_page.md](example_project_page.md) ...
 
 ```
 
-The summary will have sections for the following status codes:
+The specification list is also saved on GitHub. So after you have
+written the summary at least once, you can read the summary remotely
+via something like:
+
+``` python
+>>> dashboard = PulseOxDashboard(
+...     token=YOUR_GITHUB_PAT, owner=owner, repo=repo).get_remote_data(
+... ).write_summary(force_refresh=True)
+>>> print(dashboard.summary.text)  # Get text summary for local view
+# ERROR
+- [alt_example.md](alt_example.md) We can report BAD runs as well ...
+# MISSING
+- [missing.md](missing.md) error: (status_code=404) NOT FOUND None
+# OK
+- [example_project_page.md](example_project_page.md) ...
+
+```
+
+## Notification
+
+You can use the [notifiers](https://github.com/liiight/notifiers)
+package to send you notifications on status changes by providing a
+dictionary of keyword arguments when creating your dashboard. For
+example you could do something like:
+```
+dashboard = PulseOxDashboard(... notify={'telegram': {
+    'token': YOUR_TELEGRAM_TOKEN, 'chat_id': YOUR_CHAT_ID}})
+```
+when creating your dashboard. See [docs for
+notifiers](https://notifiers.readthedocs.io/en/latest/) for details on
+available providers and keyword arguments accepted by each notifier.
+
+## Summary Details
+
+The summary will have sections for the following:
 
 -   ERROR: This comes first and consists of all client posts with status
-    of `ERROR`{.verbatim}.
+    of `BAD`{.verbatim} or posts which were reported but had problems..
 -   MISSING: This comes second and consists of all PulseOxSpec instances
     where an update has not been provided within the given schedule.
 -   OK: This comes last and consists of all PulseOxSpec instances which
@@ -94,20 +153,3 @@ Within each section, there will be an entry like:
 with `<path_to_file>`{.verbatim} being both the (relative) path to the
 posted file formatted as a link in either markdown or org format so if
 the user clicks on it, they will be taken to the give file.
-
-# Development Guidelines
-
-The following are some development requirements.
-
--   Use click for any command line interface work.
--   Make sure to follow pep8 guidelines (especially keeping lines less
-    than 79 characters).
--   Try not to repeat code; use functions.
--   It is good to keep lines less than 79 characters, but you do not
-    need to go crazy. For example, not every function parameter needs to
-    be on a separate line. Things are more readable if you keep
-    functions to less than 40 lines. So put multiple parameters on the
-    same line as long as that line is less than 79 characters.
--   Related to the above, try to break up long functions to have helper
-    functions so that most functions are less than 40 lines unless there
-    is a good reason to be longer.

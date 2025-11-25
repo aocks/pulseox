@@ -17,31 +17,6 @@ from pulseox.dashboard import PulseOxDashboard
 from pulseox.test_tools.mock_github_server import MockGitHubServer
 
 
-def safe_testfile(*args, **kwargs):
-    original_checker = doctest.OutputChecker
-    
-    class CustomChecker(doctest.OutputChecker):
-        """Custom checker to preprocess lines for doctest checks.
-        """
-
-        def check_output(self, want, got, optionflags):
-            "Remove blank lines from both expected and actual output."
-            
-            want_lines = [line for line in want.splitlines() if line.strip()]
-            got_lines = [line for line in got.splitlines() if line.strip()]
-            want = '\n'.join(want_lines)
-            got = '\n'.join(got_lines)
-            #import pdb; pdb.set_trace()#FIXME
-            return original_checker.check_output(
-                self, want, got, optionflags)
-
-    try:
-        doctest.OutputChecker = CustomChecker
-        return doctest.testfile(*args, **kwargs)
-    finally:
-        doctest.OutputChecker = original_checker
-        
-
 class TestDocs:
 
     _tokens = None
