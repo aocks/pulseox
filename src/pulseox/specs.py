@@ -58,7 +58,8 @@ def make_headers(token):
 
 
 def download_github_file(token: str, owner: str, repo: str, path: str,
-                         ref: str = "main", timeout: int = 30) -> bytes:
+                         ref: str = "main", timeout: int = 30,
+                         base_url = "https://api.github.com") -> bytes:
     """Download a file from a GitHub repository.
 
     Args:
@@ -75,8 +76,7 @@ def download_github_file(token: str, owner: str, repo: str, path: str,
         requests.HTTPError: If the request fails (e.g., file not found,
                             auth issues)
         ValueError: If the response doesn't contain expected content
-    """
-    base_url = "https://api.github.com"
+    """    
     url = f"{base_url}/repos/{owner}/{repo}/contents/{path}"
     params = {"ref": ref}
 
