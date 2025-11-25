@@ -3,13 +3,13 @@
 
 import base64
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 import requests
 from pydantic import BaseModel, Field
 
 from pulseox.specs import (ValidationError, GitHubAPIError,
-                           make_headers, VALID_STATUSES)
+                           make_headers, JOB_REPORT, make_dt_formatter)
 
 
 class PulseOxClient(BaseModel):
@@ -19,6 +19,9 @@ class PulseOxClient(BaseModel):
     token: Annotated[str, Field(exclude=True, default='', description=(
         'GitHub personal access token to access repo.'))]
 
+    show_tz: Annotated[str, Field(default='US/Eastern', description=(
+        'String name of timezone to display for datetimes'))]
+
     _base_url: str = "https://api.github.com"
 
     def post(
@@ -27,7 +30,7 @@ class PulseOxClient(BaseModel):
         repo: str,
         path_to_file: str,
         content: str,
-        status: str = "OK",
+        report: Literal[JOB_REPORT] = "GOOD",
         note: str = ""
     ) -> requests.Response:
         """Post content to a file in a GitHub repository.
@@ -37,7 +40,7 @@ class PulseOxClient(BaseModel):
             repo: Repository name
             path_to_file: Path to the file in the repository
             content: Content to write to the file
-            status: Status code (must be 'OK', 'ERROR')
+            report: Report code (must be 'GOOD', 'BAD')
             note: Optional short text note
 
         Returns:
@@ -48,12 +51,10 @@ class PulseOxClient(BaseModel):
             GitHubAPIError: If GitHub API request fails
         """
         self._validate_post_params(
-            owner, repo, path_to_file, content, status
-        )
+            owner, repo, path_to_file, content, report)
 
         metadata = self._create_metadata(
-            path_to_file, status, note
-        )
+            path_to_file, report, note)
         full_content = f"{content}\n\n{metadata}"
 
         return self._update_file(
@@ -66,7 +67,7 @@ class PulseOxClient(BaseModel):
         repo: str,
         path_to_file: str,
         content: str,
-        status: str
+        report: str
     ) -> None:
         """Validate post parameters.
 
@@ -81,29 +82,30 @@ class PulseOxClient(BaseModel):
             raise ValidationError("path_to_file cannot be empty")
         if content is None:
             raise ValidationError("content cannot be None")
-        if status not in VALID_STATUSES:
+        if report not in JOB_REPORT:
             raise ValidationError(
-                f"status must be one of {VALID_STATUSES}, "
-                f"got: {status}"
+                f"report must be one of {JOB_REPORT}, "
+                f"got: {report}"
             )
 
     def _create_metadata(
         self,
         path_to_file: str,
-        status: str,
+        report: Literal[JOB_REPORT],
         note: str
     ) -> str:
         """Create metadata section for the file.
 
         Args:
             path_to_file: Path to determine file format
-            status: Status code
+            report: Report code
             note: Optional note
 
         Returns:
             Formatted metadata string
         """
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = make_dt_formatter(self.show_tz)(
+            datetime.now(timezone.utc).isoformat())
 
         if path_to_file.endswith('.md'):
             header = "# Metadata"
@@ -115,7 +117,7 @@ class PulseOxClient(BaseModel):
 
         metadata_lines = [
             header,
-            f"- status: {status}",
+            f"- report: {report}",
             f"- updated: {timestamp}",
         ]
 
