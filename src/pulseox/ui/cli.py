@@ -4,7 +4,7 @@
 import os
 import click
 
-from pulseox.tools import PulseOxClient
+from pulseox.client import PulseOxClient
 
 
 def common_options(required=False):
