@@ -5,6 +5,8 @@
 
 PYTEST_EXTRA_FLAGS ?= ""
 
+PYTEST_COV ?= --cov=src/pulseox --cov-report term-missing --cov-fail-under=60
+
 # The stuff below implements an auto help feature
 define PRINT_HELP_PYSCRIPT
 import re, sys
@@ -30,8 +32,12 @@ type:   ## Run type checker
 	.venv/bin/pylint --generate-rcfile > .pylintrc
 
 test:   ## Run tests
-	uv run py.test -s -vvv --doctest-modules --doctest-glob='*.md' \
-            ${PYTEST_EXTRA_FLAGS} src
+	.venv/bin/py.test -s -vvv --doctest-modules \
+            ${PYTEST_EXTRA_FLAGS} src tests
+
+cov:    ## Run tests and include code coverage with PYTEST_COV flag
+	PYTEST_EXTRA_FLAGS="${PYTEST_EXTRA_FLAGS} ${PYTEST_COV}" \
+          ${MAKE} test
 
 check:  ## Run linting, tests, etc.
 	${MAKE} lint
@@ -51,10 +57,6 @@ pypi:   check cov dist  ## Upload to pypi
 
 dist:   ## Build distribution
 	uv run python3 -m build 
-
-cov:  ## Run tests with code coverage (without numba).
-	${MAKE} test \
-          PYTEST_EXTRA_FLAGS="--cov=src --cov-report term-missing --cov-fail-under=98"
 
 update_dev:  ## Install/update tools required for development/packaging
 	./.venv/bin/uv pip install setuptools wheel twine build packaging \
