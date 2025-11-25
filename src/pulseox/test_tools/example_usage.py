@@ -49,6 +49,9 @@ def example_basic_usage():
                 }
             )
             print(f"   Status: {response.status_code}")
+            if response.status_code >= 400:
+                print(f"   Error: {response.json()}")
+                return
             print(f"   File SHA: {response.json()['content']['sha']}")
 
             # Example 2: Read the file back
@@ -158,7 +161,7 @@ def example_git_tree_api():
             for filename, content in [
                 ("file1.txt", "Content 1"),
                 ("file2.txt", "Content 2"),
-                ("dir/file3.txt", "Content 3")
+                ("file3.txt", "Content 3")
             ]:
                 encoded = base64.b64encode(content.encode()).decode()
                 response = requests.post(
@@ -191,6 +194,9 @@ def example_git_tree_api():
                     "tree": tree_entries
                 }
             )
+            if response.status_code >= 400:
+                print(f"   Error: {response.json()}")
+                return
             new_tree = response.json()["sha"]
             print(f"   New tree: {new_tree}")
 

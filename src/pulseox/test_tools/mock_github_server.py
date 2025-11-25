@@ -61,9 +61,44 @@ class MockGitHubServer:
             check=True,
             capture_output=True
         )
+        # Configure git user
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=self.repo_root,
+            check=True,
+            capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=self.repo_root,
+            check=True,
+            capture_output=True
+        )
+        # Disable commit signing to avoid interference from hooks
+        subprocess.run(
+            ["git", "config", "commit.gpgsign", "false"],
+            cwd=self.repo_root,
+            check=True,
+            capture_output=True
+        )
+        # Disable other signing mechanisms
+        subprocess.run(
+            ["git", "config", "gpg.format", "openpgp"],
+            cwd=self.repo_root,
+            check=True,
+            capture_output=True
+        )
         # Set default branch to main
         subprocess.run(
             ["git", "checkout", "-b", "main"],
+            cwd=self.repo_root,
+            check=True,
+            capture_output=True
+        )
+        # Create an initial empty commit so the branch exists
+        # This is needed for git tree API operations
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "Initial commit"],
             cwd=self.repo_root,
             check=True,
             capture_output=True
@@ -74,20 +109,35 @@ class MockGitHubServer:
 
         Args:
             *args: Arguments to pass to git.
-            check: Whether to check return code.
+            check: Whether to check return code (raises CalledProcessError on failure).
             **kwargs: Additional arguments for subprocess.run.
 
         Returns:
             CompletedProcess instance.
+
+        Raises:
+            subprocess.CalledProcessError: If check=True and command fails.
         """
-        return subprocess.run(
-            ["git"] + list(args),
-            cwd=self.repo_root,
-            check=check,
-            capture_output=True,
-            text=True,
-            **kwargs
-        )
+        try:
+            result = subprocess.run(
+                ["git"] + list(args),
+                cwd=self.repo_root,
+                check=check,
+                capture_output=True,
+                text=True,
+                **kwargs
+            )
+            return result
+        except subprocess.CalledProcessError as e:
+            # Add more context to git errors for easier debugging
+            error_msg = f"Git command failed: git {' '.join(args)}\n"
+            error_msg += f"Working directory: {self.repo_root}\n"
+            error_msg += f"Return code: {e.returncode}\n"
+            if e.stdout:
+                error_msg += f"Stdout: {e.stdout}\n"
+            if e.stderr:
+                error_msg += f"Stderr: {e.stderr}"
+            raise RuntimeError(error_msg) from e
 
     def _compute_sha(self, content: bytes, obj_type: str = "blob") -> str:
         """Compute git SHA-1 hash for content.
@@ -127,16 +177,16 @@ class MockGitHubServer:
                 }), 401
 
         # Route: GET /repos/{owner}/{repo}/contents/{path:path}
-        @self.app.route("/repos/<owner>/<repo>/contents/<path:filepath>", methods=["GET"])
-        def get_contents(owner, repo, filepath):
+        @self.app.route("/repos/<owner>/<repo>/contents/<path:path>", methods=["GET"])
+        def get_contents(owner, repo, path):
             """Get file contents from the repository."""
-            return self._handle_get_contents(owner, repo, filepath)
+            return self._handle_get_contents(owner, repo, path)
 
         # Route: PUT /repos/{owner}/{repo}/contents/{path:path}
-        @self.app.route("/repos/<owner>/<repo>/contents/<path:filepath>", methods=["PUT"])
-        def put_contents(owner, repo, filepath):
+        @self.app.route("/repos/<owner>/<repo>/contents/<path:path>", methods=["PUT"])
+        def put_contents(owner, repo, path):
             """Create or update file contents in the repository."""
-            return self._handle_put_contents(owner, repo, filepath)
+            return self._handle_put_contents(owner, repo, path)
 
         # Route: GET /repos/{owner}/{repo}/git/refs/heads/{branch}
         @self.app.route("/repos/<owner>/<repo>/git/refs/heads/<branch>", methods=["GET"])
@@ -174,13 +224,19 @@ class MockGitHubServer:
             """Create a commit object."""
             return self._handle_create_commit(owner, repo)
 
-    def _handle_get_contents(self, owner: str, repo: str, filepath: str):
-        """Handle GET /repos/{owner}/{repo}/contents/{path}."""
+    def _handle_get_contents(self, owner: str, repo: str, path: str):
+        """Handle GET /repos/{owner}/{repo}/contents/{path}.
+
+        Args:
+            owner: Repository owner.
+            repo: Repository name.
+            path: Path to the file in the repository.
+        """
         ref = request.args.get("ref", "main")
 
         # Check if file exists in the specified ref
         result = self._git(
-            "show", f"{ref}:{filepath}",
+            "show", f"{ref}:{path}",
             check=False
         )
 
@@ -195,20 +251,26 @@ class MockGitHubServer:
         sha = self._compute_sha(content)
 
         return jsonify({
-            "name": os.path.basename(filepath),
-            "path": filepath,
+            "name": os.path.basename(path),
+            "path": path,
             "sha": sha,
             "size": len(content),
             "type": "file",
             "content": encoded_content,
             "encoding": "base64",
-            "url": f"http://localhost/repos/{owner}/{repo}/contents/{filepath}",
-            "html_url": f"http://localhost/{owner}/{repo}/blob/main/{filepath}",
-            "download_url": f"http://localhost/{owner}/{repo}/raw/main/{filepath}"
+            "url": f"http://localhost/repos/{owner}/{repo}/contents/{path}",
+            "html_url": f"http://localhost/{owner}/{repo}/blob/main/{path}",
+            "download_url": f"http://localhost/{owner}/{repo}/raw/main/{path}"
         }), 200
 
-    def _handle_put_contents(self, owner: str, repo: str, filepath: str):
-        """Handle PUT /repos/{owner}/{repo}/contents/{path}."""
+    def _handle_put_contents(self, owner: str, repo: str, path: str):
+        """Handle PUT /repos/{owner}/{repo}/contents/{path}.
+
+        Args:
+            owner: Repository owner.
+            repo: Repository name.
+            path: Path to the file in the repository.
+        """
         data = request.get_json()
 
         if not data or "content" not in data or "message" not in data:
@@ -224,56 +286,62 @@ class MockGitHubServer:
                 "message": f"Invalid base64 content: {str(e)}"
             }), 400
 
-        # Write file to disk
-        file_path = self.repo_root / filepath
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_bytes(content)
+        try:
+            # Write file to disk
+            absolute_file_path = self.repo_root / path
+            absolute_file_path.parent.mkdir(parents=True, exist_ok=True)
+            absolute_file_path.write_bytes(content)
 
-        # Stage and commit the file
-        self._git("add", filepath)
-        self._git("commit", "-m", data["message"])
+            # Stage and commit the file
+            self._git("add", path)
+            self._git("commit", "-m", data["message"])
 
-        # Get the new commit SHA
-        commit_sha = self._git("rev-parse", "HEAD").stdout.strip()
+            # Get the new commit SHA
+            commit_sha = self._git("rev-parse", "HEAD").stdout.strip()
 
-        # Calculate file SHA
-        file_sha = self._compute_sha(content)
+            # Calculate file SHA
+            file_sha = self._compute_sha(content)
 
-        # Get tree SHA
-        tree_sha = self._git("rev-parse", "HEAD^{tree}").stdout.strip()
+            # Get tree SHA
+            tree_sha = self._git("rev-parse", "HEAD^{tree}").stdout.strip()
 
-        return jsonify({
-            "content": {
-                "name": os.path.basename(filepath),
-                "path": filepath,
-                "sha": file_sha,
-                "size": len(content),
-                "type": "file",
-                "url": f"http://localhost/repos/{owner}/{repo}/contents/{filepath}",
-                "html_url": f"http://localhost/{owner}/{repo}/blob/main/{filepath}",
-                "download_url": f"http://localhost/{owner}/{repo}/raw/main/{filepath}"
-            },
-            "commit": {
-                "sha": commit_sha,
-                "url": f"http://localhost/repos/{owner}/{repo}/git/commits/{commit_sha}",
-                "html_url": f"http://localhost/{owner}/{repo}/commit/{commit_sha}",
-                "author": {
-                    "date": datetime.now(timezone.utc).isoformat(),
-                    "name": "Test User",
-                    "email": "test@example.com"
+            return jsonify({
+                "content": {
+                    "name": os.path.basename(path),
+                    "path": path,
+                    "sha": file_sha,
+                    "size": len(content),
+                    "type": "file",
+                    "url": f"http://localhost/repos/{owner}/{repo}/contents/{path}",
+                    "html_url": f"http://localhost/{owner}/{repo}/blob/main/{path}",
+                    "download_url": f"http://localhost/{owner}/{repo}/raw/main/{path}"
                 },
-                "committer": {
-                    "date": datetime.now(timezone.utc).isoformat(),
-                    "name": "Test User",
-                    "email": "test@example.com"
-                },
-                "message": data["message"],
-                "tree": {
-                    "sha": tree_sha,
-                    "url": f"http://localhost/repos/{owner}/{repo}/git/trees/{tree_sha}"
+                "commit": {
+                    "sha": commit_sha,
+                    "url": f"http://localhost/repos/{owner}/{repo}/git/commits/{commit_sha}",
+                    "html_url": f"http://localhost/{owner}/{repo}/commit/{commit_sha}",
+                    "author": {
+                        "date": datetime.now(timezone.utc).isoformat(),
+                        "name": "Test User",
+                        "email": "test@example.com"
+                    },
+                    "committer": {
+                        "date": datetime.now(timezone.utc).isoformat(),
+                        "name": "Test User",
+                        "email": "test@example.com"
+                    },
+                    "message": data["message"],
+                    "tree": {
+                        "sha": tree_sha,
+                        "url": f"http://localhost/repos/{owner}/{repo}/git/trees/{tree_sha}"
+                    }
                 }
-            }
-        }), 201 if "sha" not in data else 200
+            }), 201 if "sha" not in data else 200
+        except RuntimeError as e:
+            # Git command failed
+            return jsonify({
+                "message": f"Failed to update file: {str(e)}"
+            }), 500
 
     def _handle_get_ref(self, owner: str, repo: str, branch: str):
         """Handle GET /repos/{owner}/{repo}/git/refs/heads/{branch}."""
@@ -415,21 +483,39 @@ class MockGitHubServer:
         else:
             content = data["content"].encode()
 
-        # Create blob using git hash-object
-        result = self._git(
-            "hash-object", "-w", "--stdin",
-            input=content,
-            check=True
-        )
+        try:
+            # Create blob using git hash-object
+            # Note: We override text=False here because we're passing binary data
+            result = subprocess.run(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=self.repo_root,
+                input=content,
+                check=True,
+                capture_output=True,
+                text=False
+            )
 
-        blob_sha = result.stdout.strip()
+            blob_sha = result.stdout.decode().strip()
 
-        return jsonify({
-            "url": f"http://localhost/repos/{owner}/{repo}/git/blobs/{blob_sha}",
-            "sha": blob_sha,
-            "size": len(content),
-            "node_id": "mock_node_id"
-        }), 201
+            return jsonify({
+                "url": f"http://localhost/repos/{owner}/{repo}/git/blobs/{blob_sha}",
+                "sha": blob_sha,
+                "size": len(content),
+                "node_id": "mock_node_id"
+            }), 201
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Git command failed: git hash-object -w --stdin\n"
+            error_msg += f"Working directory: {self.repo_root}\n"
+            error_msg += f"Return code: {e.returncode}\n"
+            if e.stderr:
+                error_msg += f"Stderr: {e.stderr.decode()}"
+            return jsonify({
+                "message": f"Failed to create blob: {error_msg}"
+            }), 500
+        except Exception as e:
+            return jsonify({
+                "message": f"Failed to create blob: {str(e)}"
+            }), 500
 
     def _handle_create_tree(self, owner: str, repo: str):
         """Handle POST /repos/{owner}/{repo}/git/trees."""
@@ -443,59 +529,64 @@ class MockGitHubServer:
         base_tree = data.get("base_tree")
         tree_entries = data["tree"]
 
-        # Build tree using git mktree
-        # Format: <mode> <type> <sha>\t<path>
-        tree_input = []
-        for entry in tree_entries:
-            mode = entry.get("mode", "100644")
-            obj_type = entry.get("type", "blob")
-            sha = entry["sha"]
-            path = entry["path"]
-            tree_input.append(f"{mode} {obj_type} {sha}\t{path}")
+        try:
+            # Build tree using git mktree
+            # Format: <mode> <type> <sha>\t<path>
+            tree_input = []
+            for entry in tree_entries:
+                mode = entry.get("mode", "100644")
+                obj_type = entry.get("type", "blob")
+                sha = entry["sha"]
+                path = entry["path"]
+                tree_input.append(f"{mode} {obj_type} {sha}\t{path}")
 
-        # If base_tree is provided, we need to read it first and merge
-        if base_tree:
-            base_result = self._git("ls-tree", base_tree, check=False)
-            if base_result.returncode == 0:
-                base_entries = {}
-                for line in base_result.stdout.strip().split('\n'):
-                    if line:
-                        parts = line.split('\t')
-                        if len(parts) == 2:
-                            base_entries[parts[1]] = parts[0]
+            # If base_tree is provided, we need to read it first and merge
+            if base_tree:
+                base_result = self._git("ls-tree", base_tree, check=False)
+                if base_result.returncode == 0:
+                    base_entries = {}
+                    for line in base_result.stdout.strip().split('\n'):
+                        if line:
+                            parts = line.split('\t')
+                            if len(parts) == 2:
+                                base_entries[parts[1]] = parts[0]
 
-                # Merge: new entries override base entries
-                new_paths = {entry["path"] for entry in tree_entries}
-                for path, info in base_entries.items():
-                    if path not in new_paths:
-                        tree_input.append(f"{info}\t{path}")
+                    # Merge: new entries override base entries
+                    new_paths = {entry["path"] for entry in tree_entries}
+                    for path, info in base_entries.items():
+                        if path not in new_paths:
+                            tree_input.append(f"{info}\t{path}")
 
-        # Create the tree
-        result = self._git(
-            "mktree",
-            input='\n'.join(tree_input) + '\n',
-            check=True
-        )
+            # Create the tree
+            result = self._git(
+                "mktree",
+                input='\n'.join(tree_input) + '\n',
+                check=True
+            )
 
-        tree_sha = result.stdout.strip()
+            tree_sha = result.stdout.strip()
 
-        # Build response tree entries
-        response_entries = []
-        for entry in tree_entries:
-            response_entries.append({
-                "path": entry["path"],
-                "mode": entry.get("mode", "100644"),
-                "type": entry.get("type", "blob"),
-                "sha": entry["sha"],
-                "url": f"http://localhost/repos/{owner}/{repo}/git/blobs/{entry['sha']}"
-            })
+            # Build response tree entries
+            response_entries = []
+            for entry in tree_entries:
+                response_entries.append({
+                    "path": entry["path"],
+                    "mode": entry.get("mode", "100644"),
+                    "type": entry.get("type", "blob"),
+                    "sha": entry["sha"],
+                    "url": f"http://localhost/repos/{owner}/{repo}/git/blobs/{entry['sha']}"
+                })
 
-        return jsonify({
-            "sha": tree_sha,
-            "url": f"http://localhost/repos/{owner}/{repo}/git/trees/{tree_sha}",
-            "tree": response_entries,
-            "truncated": False
-        }), 201
+            return jsonify({
+                "sha": tree_sha,
+                "url": f"http://localhost/repos/{owner}/{repo}/git/trees/{tree_sha}",
+                "tree": response_entries,
+                "truncated": False
+            }), 201
+        except RuntimeError as e:
+            return jsonify({
+                "message": f"Failed to create tree: {str(e)}"
+            }), 500
 
     def _handle_create_commit(self, owner: str, repo: str):
         """Handle POST /repos/{owner}/{repo}/git/commits."""
@@ -510,52 +601,57 @@ class MockGitHubServer:
         tree_sha = data["tree"]
         parents = data.get("parents", [])
 
-        # Build commit command
-        env = os.environ.copy()
-        env["GIT_AUTHOR_NAME"] = "Test User"
-        env["GIT_AUTHOR_EMAIL"] = "test@example.com"
-        env["GIT_COMMITTER_NAME"] = "Test User"
-        env["GIT_COMMITTER_EMAIL"] = "test@example.com"
+        try:
+            # Build commit command
+            env = os.environ.copy()
+            env["GIT_AUTHOR_NAME"] = "Test User"
+            env["GIT_AUTHOR_EMAIL"] = "test@example.com"
+            env["GIT_COMMITTER_NAME"] = "Test User"
+            env["GIT_COMMITTER_EMAIL"] = "test@example.com"
 
-        cmd = ["commit-tree", tree_sha, "-m", message]
-        for parent in parents:
-            cmd.extend(["-p", parent])
+            cmd = ["commit-tree", tree_sha, "-m", message]
+            for parent in parents:
+                cmd.extend(["-p", parent])
 
-        result = self._git(*cmd, env=env, check=True)
-        commit_sha = result.stdout.strip()
+            result = self._git(*cmd, env=env, check=True)
+            commit_sha = result.stdout.strip()
 
-        parent_objects = [
-            {
-                "sha": parent,
-                "url": f"http://localhost/repos/{owner}/{repo}/git/commits/{parent}"
-            }
-            for parent in parents
-        ]
+            parent_objects = [
+                {
+                    "sha": parent,
+                    "url": f"http://localhost/repos/{owner}/{repo}/git/commits/{parent}"
+                }
+                for parent in parents
+            ]
 
-        return jsonify({
-            "sha": commit_sha,
-            "url": f"http://localhost/repos/{owner}/{repo}/git/commits/{commit_sha}",
-            "author": {
-                "date": datetime.now(timezone.utc).isoformat(),
-                "name": "Test User",
-                "email": "test@example.com"
-            },
-            "committer": {
-                "date": datetime.now(timezone.utc).isoformat(),
-                "name": "Test User",
-                "email": "test@example.com"
-            },
-            "message": message,
-            "tree": {
-                "sha": tree_sha,
-                "url": f"http://localhost/repos/{owner}/{repo}/git/trees/{tree_sha}"
-            },
-            "parents": parent_objects,
-            "verification": {
-                "verified": False,
-                "reason": "unsigned"
-            }
-        }), 201
+            return jsonify({
+                "sha": commit_sha,
+                "url": f"http://localhost/repos/{owner}/{repo}/git/commits/{commit_sha}",
+                "author": {
+                    "date": datetime.now(timezone.utc).isoformat(),
+                    "name": "Test User",
+                    "email": "test@example.com"
+                },
+                "committer": {
+                    "date": datetime.now(timezone.utc).isoformat(),
+                    "name": "Test User",
+                    "email": "test@example.com"
+                },
+                "message": message,
+                "tree": {
+                    "sha": tree_sha,
+                    "url": f"http://localhost/repos/{owner}/{repo}/git/trees/{tree_sha}"
+                },
+                "parents": parent_objects,
+                "verification": {
+                    "verified": False,
+                    "reason": "unsigned"
+                }
+            }), 201
+        except RuntimeError as e:
+            return jsonify({
+                "message": f"Failed to create commit: {str(e)}"
+            }), 500
 
     def start(self, host: str = "127.0.0.1", port: int = 5000, threaded: bool = True):
         """Start the mock GitHub server.
