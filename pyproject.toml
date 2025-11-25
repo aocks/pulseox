@@ -43,7 +43,8 @@ dev = [
     "flake8>=5.0.0",
     "mypy>=0.990",
     "pylint",
-    "ruff>=0.13.3",    
+    "ruff>=0.13.3",
+    "flask>=2.0.0",
 ]
 
 [tool.setuptools]
