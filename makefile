@@ -49,10 +49,10 @@ clean:  ## Clean out generated files.
 	rm -rf -- dist *.egg-info src/*.egg-info
 	rm -rf -- `find . -name '__pycache__' -print`
 
-test_pypi:  check dist  ## Test pypi upload
+test_pypi:  clean check dist  ## Test pypi upload (builds, checks, uploads to test.pypi.org)
 	uv run python3 -m twine upload --verbose --repository testpypi dist/*
 
-pypi:   check cov dist  ## Upload to pypi
+pypi:   clean check cov dist  ## Upload to pypi (builds, checks with coverage, uploads to pypi.org)
 	uv run python3 -m twine upload --verbose dist/*
 
 dist:   ## Build distribution

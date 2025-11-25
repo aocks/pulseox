@@ -1,6 +1,6 @@
 # Introduction
 
-The `pulseox`{.verbatim} project provides python tools to create,
+The `pulseox` project provides python tools to create,
 update, and monitor a system pulse and dashboard using GitHub.
 
 You can have your clients update a project page on GitHub with current
@@ -29,14 +29,14 @@ pip install uv              # Install uv
 uv venv --seed --clear      # Recreate venv since uv likes that
 source .venv/bin/activate   # Source new venv
 pip install uv              # Add uv to venv if you don't have global uv
-uv sync                     # Sync dependancies.
+uv sync                     # Sync dependencies.
 ```
 
 # Usage
 
 ## Client
 
-You can instantiate a `pulseox`{.verbatim} client and use it to update a
+You can instantiate a `pulseox` client and use it to update a
 page in a GitHub project. The client will use the GitHub API and an
 access token to post content as shown below:
 
@@ -134,15 +134,15 @@ available providers and keyword arguments accepted by each notifier.
 The summary will have sections for the following:
 
 -   ERROR: This comes first and consists of all client posts with status
-    of `BAD`{.verbatim} or posts which were reported but had problems..
+    of `BAD` or posts which were reported but had problems..
 -   MISSING: This comes second and consists of all PulseOxSpec instances
     where an update has not been provided within the given schedule.
 -   OK: This comes last and consists of all PulseOxSpec instances which
     were posted with status OK within the required schedule.
 
-The summary will be in markdown format if `mode`{.verbatim} was set to
-`'md'`{.verbatim} and org-mode format if `mode`{.verbatim} was set to
-`'org'`{.verbatim}. Empty sections will be omitted.
+The summary will be in markdown format if `mode` was set to
+`'md'` and org-mode format if `mode` was set to
+`'org'`. Empty sections will be omitted.
 
 Within each section, there will be an entry like:
 
@@ -150,6 +150,6 @@ Within each section, there will be an entry like:
 - <path_to_file> <note> <update_time>
 ```
 
-with `<path_to_file>`{.verbatim} being both the (relative) path to the
+with `<path_to_file>` being both the (relative) path to the
 posted file formatted as a link in either markdown or org format so if
 the user clicks on it, they will be taken to the give file.

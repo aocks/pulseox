@@ -70,7 +70,7 @@ paths provided exist.
     if token:
         PulseOxClient(token=token).post(
             owner=owner, repo=repo, path_to_file=hc_path,
-            content=content, status=status, note=note)
+            content=content, report=status, note=note)
     else:
         click.echo('No token provided so no status report submitted.')
         click.echo(f'Note: {note}')
