@@ -227,7 +227,8 @@ class PulseOxDashboard(BaseModel):
 
         """
         content = download_github_file(self.token, self.owner,
-                                       self.repo, github_file, ref)
+                                       self.repo, github_file, ref,
+                                       base_url=self._base_url)
         content = content.decode('utf8')
         parsed = self.__class__.model_validate_json(content)
         self.spec_list = parsed.spec_list
@@ -267,7 +268,7 @@ class PulseOxDashboard(BaseModel):
         status = {n: {} for n in VALID_STATUSES}
 
         for spec in self.spec_list:
-            spec.update(token=self.token)
+            spec.update(token=self.token, base_url=self._base_url)
             if spec.report == 'BAD':
                 status['ERROR'][spec.path] = spec
             else:
