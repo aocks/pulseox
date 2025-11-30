@@ -1,17 +1,17 @@
 """Basic specifications and common classes for PulseOx.
 """
 
-import base64
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union, Annotated, Literal
 import re
 
-import requests
 from dateutil import parser as dateparser
 from croniter import croniter
 from pydantic import BaseModel, Field
 import pytz
+
+from pulseox.github import update_github_spec
 
 VALID_MODES = {'md', 'org'}
 VALID_STATUSES = ('ERROR', 'MISSING', 'OK')
@@ -48,54 +48,6 @@ def make_dt_formatter(show_tz, fmt='%Y-%m-%d %H:%M %Z') -> str:
     return format_dt
 
 
-
-def make_headers(token):
-    "Make GitHub API headers"
-    if not token:
-        raise ValueError('Must set token before interacting with GitHub')
-    return {"Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json"}
-
-
-def download_github_file(token: str, owner: str, repo: str, path: str,
-                         ref: str = "main", timeout: int = 30,
-                         base_url = "https://api.github.com") -> bytes:
-    """Download a file from a GitHub repository.
-
-    Args:
-        token: Github token.
-        owner: Repository owner (username or organization)
-        repo: Repository name
-        path: Path to the file within the repository
-        ref: Branch, tag, or commit SHA (default: "main")
-
-    Returns:
-        File contents as bytes
-
-    Raises:
-        requests.HTTPError: If the request fails (e.g., file not found,
-                            auth issues)
-        ValueError: If the response doesn't contain expected content
-    """    
-    url = f"{base_url}/repos/{owner}/{repo}/contents/{path}"
-    params = {"ref": ref}
-
-    headers = make_headers(token)
-    response = requests.get(url, headers=headers, params=params,
-                            timeout=timeout)
-    response.raise_for_status()
-
-    data = response.json()
-
-    # GitHub API returns file content as base64-encoded string
-    if "content" not in data:
-        raise ValueError(f"No content found for file: {path}")
-
-    # Decode the base64 content
-    content = base64.b64decode(data["content"])
-    return content
-
-
 class PulseOxError(Exception):
     """Base exception for PulseOx errors."""
 
@@ -130,65 +82,18 @@ class PulseOxSpec(BaseModel):
             'What the job reports as its state.'))]
     updated: Optional[str] = None
 
-    def update(self, token: str, base_url="https://api.github.com"):
+    def update(self, token: Optional[str] = None,
+               base_url: str = "https://api.github.com"):
         """Query GitHub to update report.
+
+        Args:
+            token: GitHub personal access token (optional for future
+                   support of non-GitHub backends)
+            base_url: GitHub API base URL
         """
-        url = (f"{base_url}/repos/{self.owner}/{self.repo}/contents/"
-               f"{self.path}")
-
-        self.report = 'NOT_REPORTED'
-        self.note = None
-
-        try:
-            response = requests.get(
-                url, headers=make_headers(token=token), timeout=30)
-        except requests.RequestException as problem:
-            # Network error, treat as missing
-            logging.exception('Problem try to get report.')
-            self.note = 'network error: ' + str(problem)
-            return
-
-        status_code = getattr(response, 'status_code', -1)
-        if status_code != 200:
-            self.note = f'error: ({status_code=}) ' + getattr(
-                response, 'reason', 'unknown')
-            return
-
-        try:  # Decode content
-            response_data = response.json()
-            if 'content' not in response_data:
-                logging.exception("No content in response")
-                self.note = "No content in GitHub response"
-                return
-            content = base64.b64decode(response_data['content']).decode(
-                'utf-8')
-        except (ValueError, KeyError, UnicodeDecodeError) as problem:
-            self.note = f'Problem decoding GitHub response: {problem}'
-            logging.exception(self.note)
-            # Failed to decode, treat as missing metadata
-            return
-
-        # Parse metadata
-        metadata = self._parse_metadata(content)
-
-        if not metadata:
-            self.note = 'Failed to parse metadata'
-            logging.error(self.note)
-            return
-
-        # Determine report based on metadata and schedule
-        metadata_report = metadata.get('report', '').upper()
-
-        if metadata_report in JOB_REPORT:
-            self.report = metadata_report
-        else:  # Unknown report, treat as BAD
-            self.report = 'BAD'
-            self.note = f' report {metadata_report=} treated as bad'
-            logging.error(self.note)
-
-        if metadata.get('note', None):
-            self.note = metadata.get('note')
-        self.updated = metadata.get('updated')
+        # For now, if owner is a string, assume GitHub backend
+        if isinstance(self.owner, str) and token:
+            update_github_spec(self, token=token, base_url=base_url)
 
     def _parse_metadata(self, content: str) -> Optional[dict]:
         """Parse metadata from file content.

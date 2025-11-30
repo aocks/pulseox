@@ -1,7 +1,6 @@
 """Dashboard for PulseOx.
 """
 
-import base64
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
@@ -9,7 +8,8 @@ import requests
 from pydantic import BaseModel, Field
 
 from pulseox.specs import (ValidationError, GitHubAPIError,
-                           make_headers, JOB_REPORT, make_dt_formatter)
+                           JOB_REPORT, make_dt_formatter)
+from pulseox.github import GitHubBackend
 
 
 class PulseOxClient(BaseModel):
@@ -57,7 +57,8 @@ class PulseOxClient(BaseModel):
             path_to_file, report, note)
         full_content = f"{content}\n\n{metadata}"
 
-        return self._update_file(
+        backend = GitHubBackend(token=self.token, base_url=self._base_url)
+        return backend.update_file(
             owner, repo, path_to_file, full_content
         )
 
@@ -125,67 +126,3 @@ class PulseOxClient(BaseModel):
             metadata_lines.append(f"- note: {note}")
 
         return "\n".join(metadata_lines)
-
-    def _update_file(
-        self,
-        owner: str,
-        repo: str,
-        path: str,
-        content: str
-    ) -> requests.Response:
-        """Update or create a file in GitHub repository.
-
-        Args:
-            owner: Repository owner
-            repo: Repository name
-            path: File path in repository
-            content: File content
-
-        Returns:
-            Response from GitHub API
-
-        Raises:
-            GitHubAPIError: If the API request fails
-        """
-        url = f"{self._base_url}/repos/{owner}/{repo}/contents/{path}"
-
-        # Get current file SHA if it exists
-        try:
-            get_response = requests.get(
-                url, headers=make_headers(self.token), timeout=30
-            )
-        except requests.RequestException as e:
-            raise GitHubAPIError(f"Failed to fetch file info: {e}") from e
-
-        sha = None
-        if get_response.status_code == 200:
-            try:
-                sha = get_response.json().get("sha")
-            except (ValueError, KeyError) as e:
-                raise GitHubAPIError(f"Failed to parse GitHub response: {e}"
-                                     ) from e
-
-        # Prepare update payload
-        try:
-            encoded_content = base64.b64encode(
-                content.encode('utf-8')
-            ).decode('utf-8')
-        except UnicodeEncodeError as e:
-            raise ValidationError(f"Failed to encode content: {e}") from e
-
-        payload = {
-            "message": f"Update {path}",
-            "content": encoded_content,
-        }
-
-        if sha:
-            payload["sha"] = sha
-
-        try:
-            response = requests.put(
-                url, json=payload, headers=make_headers(self.token),
-                timeout=30)
-        except requests.RequestException as e:
-            raise GitHubAPIError(f"Failed to update file: {e}") from e
-
-        return response
