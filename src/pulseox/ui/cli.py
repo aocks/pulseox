@@ -4,6 +4,7 @@
 import os
 import click
 
+from pulseox import __version__
 from pulseox.client import PulseOxClient
 
 
@@ -24,6 +25,12 @@ def cli():
     """PulseOx Command Line Interface (CLI).
     """
 
+@cli.command()
+def version():
+    "Report current version."
+    click.echo(__version__)
+    return __version__
+
 
 @cli.group()
 def check():
@@ -41,11 +48,11 @@ def check():
               help=('Optional content template for status report.'))
 @common_options()
 def exists(path, hc_path, note, content, owner, repo, token):
-    """Check if files exists (OK) or not (ERROR).
+    """Check if files exists (GOOD) or not (BAD).
 
 You can provide the --path option multiple times to check multiple
-paths for existence. We will report an OK condition only if all
-paths provided exist.    
+paths for existence. We will report a GOOD condition only if all
+paths provided exist.
     """
     good, bad = [], []
     for name in path:
@@ -56,12 +63,12 @@ paths provided exist.
 
     if any(bad):
         note = f'{len(bad)} bad paths'
-        status = 'ERROR'
+        status = 'BAD'
         bad_list = '\n## Bad Paths\n' + '\n  - '.join([''] + bad) + '\n'
     else:
         bad_list = ''
         note = 'all paths good'
-        status = 'OK'
+        status = 'GOOD'
     good_list = '## Good Paths\n' + '\n  - '.join([''] + good) if good else ''
 
     content = content.format(bad=bad, good=good,
