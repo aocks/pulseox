@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field, SkipValidation
 from pulseox.specs import (VALID_MODES, VALID_STATUSES, JOB_REPORT,
                            ValidationError, GitHubAPIError, PulseOxSpec,
                            make_dt_formatter)
-from pulseox.github import GitHubBackend, download_github_file
-from pulseox.git import GitBackend
+from pulseox.github import download_github_file
+from pulseox.generic_backend import make_backend
 
 
 LOGGER = rawLogger.getLogger(__name__)
@@ -381,33 +381,19 @@ class PulseOxDashboard(BaseModel):
             (path_to_summary, self.summary.text)
         ]
 
-        # Local git backend: owner is None and repo starts with 'file://'
-        if self.owner is None and self.repo.startswith('file://'):
-            repo_path = self.repo[7:]  # Remove 'file://' prefix
-            backend = GitBackend(repo_path=repo_path)
-            backend.write_tree(files, 'Update summary files')
-            self._latest_response = None  # No HTTP response for git backend
+        backend = make_backend(
+            self.owner, self.repo,
+            token=self.token,
+            base_url=self._base_url
+        )
+        backend.write_tree(files, 'Update summary files')
+        self._latest_response = backend.get_latest_response()
 
-            mode = path_to_summary.split('.')[-1]
-            project_root = f'file://{repo_path}/'
-            link = self.summary.format_link(repo_path,
-                                            project_root + path_to_summary)
-            if allow_notify_change:
-                self.maybe_notify_changes(title=f'Changes for {link}',
-                                          project_root=project_root)
-        # GitHub backend
-        else:
-            backend = GitHubBackend(token=self.token, base_url=self._base_url)
-            backend.write_github_tree(
-                self.owner, self.repo, files, 'Update summary files')
-            self._latest_response = backend._latest_response
+        mode = path_to_summary.split('.')[-1]
+        project_root = backend.get_project_root(path_to_summary)
+        link = backend.format_summary_link(path_to_summary, mode=mode)
 
-            mode = path_to_summary.split('.')[-1]
-            project_root = (f'https://github.com/{self.owner}/{self.repo}'
-                            '/blob/main/')
-            link = self.summary.format_link(f'{self.owner}/{self.repo}',
-                                            project_root + path_to_summary)
-            if allow_notify_change:
-                self.maybe_notify_changes(title=f'Changes for {link}',
-                                          project_root=project_root)
+        if allow_notify_change:
+            self.maybe_notify_changes(title=f'Changes for {link}',
+                                      project_root=project_root)
         return self

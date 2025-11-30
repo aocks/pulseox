@@ -9,8 +9,7 @@ from pydantic import BaseModel, Field
 
 from pulseox.specs import (ValidationError, GitHubAPIError,
                            JOB_REPORT, make_dt_formatter)
-from pulseox.github import GitHubBackend
-from pulseox.git import GitBackend
+from pulseox.generic_backend import make_backend
 
 
 class PulseOxClient(BaseModel):
@@ -61,20 +60,13 @@ class PulseOxClient(BaseModel):
             path_to_file, report, note)
         full_content = f"{content}\n\n{metadata}"
 
-        # Local git backend: owner is None and repo starts with 'file://'
-        if owner is None and repo.startswith('file://'):
-            repo_path = repo[7:]  # Remove 'file://' prefix
-            backend = GitBackend(
-                repo_path=repo_path,
-                git_executable=self.git_executable)
-            backend.update_file(path_to_file, full_content)
-            return None
-        # GitHub backend
-        else:
-            backend = GitHubBackend(token=self.token, base_url=self._base_url)
-            return backend.update_file(
-                owner, repo, path_to_file, full_content
-            )
+        backend = make_backend(
+            owner, repo,
+            token=self.token,
+            base_url=self._base_url,
+            git_executable=self.git_executable
+        )
+        return backend.update_file(path_to_file, full_content)
 
     def _validate_post_params(
         self,

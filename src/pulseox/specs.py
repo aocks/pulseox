@@ -11,8 +11,7 @@ from croniter import croniter
 from pydantic import BaseModel, Field
 import pytz
 
-from pulseox.github import update_github_spec
-from pulseox.git import update_git_spec
+from pulseox.generic_backend import make_backend
 
 VALID_MODES = {'md', 'org'}
 VALID_STATUSES = ('ERROR', 'MISSING', 'OK')
@@ -95,14 +94,13 @@ class PulseOxSpec(BaseModel):
             base_url: GitHub API base URL
             git_executable: Path to git executable (for local git backend)
         """
-        # Local git backend: owner is None and repo starts with 'file://'
-        if self.owner is None and self.repo.startswith('file://'):
-            repo_path = self.repo[7:]  # Remove 'file://' prefix
-            update_git_spec(self, repo_path=repo_path,
-                          git_executable=git_executable)
-        # GitHub backend: owner is a string
-        elif isinstance(self.owner, str) and token:
-            update_github_spec(self, token=token, base_url=base_url)
+        backend = make_backend(
+            self.owner, self.repo,
+            token=token or '',
+            base_url=base_url,
+            git_executable=git_executable
+        )
+        backend.update_spec(self)
 
     def _parse_metadata(self, content: str) -> Optional[dict]:
         """Parse metadata from file content.
