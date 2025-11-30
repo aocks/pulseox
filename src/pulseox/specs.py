@@ -11,6 +11,8 @@ from croniter import croniter
 from pydantic import BaseModel, Field
 import pytz
 
+from pulseox.github import update_github_spec
+
 VALID_MODES = {'md', 'org'}
 VALID_STATUSES = ('ERROR', 'MISSING', 'OK')
 
@@ -91,7 +93,6 @@ class PulseOxSpec(BaseModel):
         """
         # For now, if owner is a string, assume GitHub backend
         if isinstance(self.owner, str) and token:
-            from pulseox.github import update_github_spec
             update_github_spec(self, token=token, base_url=base_url)
 
     def _parse_metadata(self, content: str) -> Optional[dict]:
