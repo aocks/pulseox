@@ -205,11 +205,16 @@ class GitBackend(BaseModel):
 
         # Push if auto_push is enabled
         if self.auto_push:
-            try:
-                self._run_git('push')
-            except Exception as e:
-                LOGGER.warning(f"Failed to push: {e}")
-                # Don't raise - push failure shouldn't fail the whole operation
+            remotes = os.path.join(self.repo_path, '.git', 'refs', 'remotes')
+            if os.path.exists(remotes):
+                try:
+                    self._run_git('push')
+                except Exception as e:
+                    LOGGER.exception(f"Failed to push: {e}")
+                    raise
+            else:
+                logging.info('No push since no remotes in %s', remotes)
+
 
     def write_tree(
         self,
