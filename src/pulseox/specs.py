@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 import pytz
 
 from pulseox.github import update_github_spec
+from pulseox.git import update_git_spec
 
 VALID_MODES = {'md', 'org'}
 VALID_STATUSES = ('ERROR', 'MISSING', 'OK')
@@ -61,10 +62,12 @@ class GitHubAPIError(PulseOxError):
 
 
 class PulseOxSpec(BaseModel):
-    """Specification for a monitored file in a GitHub repository.
+    """Specification for a monitored file in a repository.
 
     Args:
-        path:     Path to the file in the GitHub repository
+        owner:    Repository owner (None for local git repos)
+        repo:     Repository name (or file:// path for local git repos)
+        path:     Path to the file in the repository
         schedule: Either a datetime.timedelta or a cron string specifying
                   the expected update frequency
 
@@ -72,7 +75,7 @@ class PulseOxSpec(BaseModel):
         ValidationError: If path is empty or schedule is invalid
     """
 
-    owner: str
+    owner: Optional[str]
     repo: str
     path: str
     schedule: Union[timedelta, str]
@@ -83,16 +86,22 @@ class PulseOxSpec(BaseModel):
     updated: Optional[str] = None
 
     def update(self, token: Optional[str] = None,
-               base_url: str = "https://api.github.com"):
-        """Query GitHub to update report.
+               base_url: str = "https://api.github.com",
+               git_executable: str = "/usr/bin/git"):
+        """Update report from backend (GitHub or local git).
 
         Args:
-            token: GitHub personal access token (optional for future
-                   support of non-GitHub backends)
+            token: GitHub personal access token (required for GitHub backend)
             base_url: GitHub API base URL
+            git_executable: Path to git executable (for local git backend)
         """
-        # For now, if owner is a string, assume GitHub backend
-        if isinstance(self.owner, str) and token:
+        # Local git backend: owner is None and repo starts with 'file://'
+        if self.owner is None and self.repo.startswith('file://'):
+            repo_path = self.repo[7:]  # Remove 'file://' prefix
+            update_git_spec(self, repo_path=repo_path,
+                          git_executable=git_executable)
+        # GitHub backend: owner is a string
+        elif isinstance(self.owner, str) and token:
             update_github_spec(self, token=token, base_url=base_url)
 
     def _parse_metadata(self, content: str) -> Optional[dict]:

@@ -10,10 +10,11 @@ from pydantic import BaseModel, Field
 from pulseox.specs import (ValidationError, GitHubAPIError,
                            JOB_REPORT, make_dt_formatter)
 from pulseox.github import GitHubBackend
+from pulseox.git import GitBackend
 
 
 class PulseOxClient(BaseModel):
-    """Client for posting content to GitHub repositories.
+    """Client for posting content to repositories (GitHub or local git).
     """
 
     token: Annotated[str, Field(exclude=True, default='', description=(
@@ -21,6 +22,9 @@ class PulseOxClient(BaseModel):
 
     show_tz: Annotated[str, Field(default='US/Eastern', description=(
         'String name of timezone to display for datetimes'))]
+
+    git_executable: Annotated[str, Field(default='/usr/bin/git', description=(
+        'Path to git executable for local git repos'))]
 
     _base_url: str = "https://api.github.com"
 
@@ -32,19 +36,19 @@ class PulseOxClient(BaseModel):
         content: str,
         report: Literal[JOB_REPORT] = "GOOD",
         note: str = ""
-    ) -> requests.Response:
-        """Post content to a file in a GitHub repository.
+    ):
+        """Post content to a file in a repository (GitHub or local git).
 
         Args:
-            owner: Repository owner
-            repo: Repository name
+            owner: Repository owner (or None for local git repos)
+            repo: Repository name (or file:// path for local git repos)
             path_to_file: Path to the file in the repository
             content: Content to write to the file
             report: Report code (must be 'GOOD', 'BAD')
             note: Optional short text note
 
         Returns:
-            Response object from the GitHub API
+            Response object from the GitHub API, or None for local git
 
         Raises:
             ValidationError: If parameters are invalid
@@ -57,10 +61,20 @@ class PulseOxClient(BaseModel):
             path_to_file, report, note)
         full_content = f"{content}\n\n{metadata}"
 
-        backend = GitHubBackend(token=self.token, base_url=self._base_url)
-        return backend.update_file(
-            owner, repo, path_to_file, full_content
-        )
+        # Local git backend: owner is None and repo starts with 'file://'
+        if owner is None and repo.startswith('file://'):
+            repo_path = repo[7:]  # Remove 'file://' prefix
+            backend = GitBackend(
+                repo_path=repo_path,
+                git_executable=self.git_executable)
+            backend.update_file(path_to_file, full_content)
+            return None
+        # GitHub backend
+        else:
+            backend = GitHubBackend(token=self.token, base_url=self._base_url)
+            return backend.update_file(
+                owner, repo, path_to_file, full_content
+            )
 
     def _validate_post_params(
         self,
@@ -75,8 +89,9 @@ class PulseOxClient(BaseModel):
         Raises:
             ValidationError: If any parameter is invalid
         """
-        if not owner or not owner.strip():
-            raise ValidationError("owner cannot be empty")
+        # For local git repos, owner can be None
+        if owner is not None and (not owner or not owner.strip()):
+            raise ValidationError("owner cannot be empty string")
         if not repo or not repo.strip():
             raise ValidationError("repo cannot be empty")
         if not path_to_file or not path_to_file.strip():
