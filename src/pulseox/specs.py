@@ -18,6 +18,8 @@ VALID_STATUSES = ('ERROR', 'MISSING', 'OK')
 
 JOB_REPORT = ('GOOD', 'BAD', 'NOT_REPORTED')
 
+DEFAULT_BASE_URL = "https://api.github.com"
+
 COMMON_TIMEZONES = {
     tz: timezone(timedelta(hours=offset))
     for tz, offset in [
@@ -46,6 +48,71 @@ def make_dt_formatter(show_tz, fmt='%Y-%m-%d %H:%M %Z') -> str:
             raise ValueError(f'Bad type for {value=}')
         return value.astimezone(tzinfo).strftime(fmt)
     return format_dt
+
+
+def format_response_error(response) -> Optional[str]:
+    """Format an error response as text.
+
+    :param response=None:  Response object.
+
+    ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+    :return:  None if there is no error indicated by response or
+              a string description of the error.
+
+    ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+    PURPOSE:  Format error information for the user.
+
+    """
+    
+    if not response:
+        return None
+    if response.status_code in (200, 201):
+        return None
+    return f'''Bad response:
+  - code: {getattr(response, "status_code", "unknown")}
+  - reason: {getattr(response, "reason", "unknown")}'''
+
+
+def create_metadata(
+        path_to_file: str = '.md',
+        report: Literal[JOB_REPORT] = 'GOOD',
+        note: Optional[str] = None,
+        show_tz: str = 'US/Eastern') -> str:
+    """Create metadata section for file.
+
+    Args:
+        path_to_file: Path to determine file format
+        report: Report code
+        note: Optional note
+        show_tz:  String indicated time zone to show.
+
+    Returns:
+        Formatted metadata string
+    """
+    timestamp = make_dt_formatter(show_tz)(
+        datetime.now(timezone.utc).isoformat())
+
+    if path_to_file.endswith('.md'):
+        header = "# Metadata"
+    elif path_to_file.endswith('.org'):
+        header = "* Metadata"
+    else:
+        # Default to markdown for unknown extensions
+        header = "# Metadata"
+
+    metadata_lines = [
+        header,
+        f"- report: {report}",
+        f"- updated: {timestamp}",
+    ]
+
+    if note:
+        metadata_lines.append(f"- note: {note}")
+
+    return "\n".join(metadata_lines)
+
 
 
 class PulseOxError(Exception):

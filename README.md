@@ -38,7 +38,15 @@ uv sync                     # Sync dependencies.
 
 You can instantiate a `pulseox` client and use it to update a
 page in a GitHub project. The client will use the GitHub API and an
-access token to post content as shown below:
+access token to post content.
+
+You can run the client either using the pulseox command line interface:
+```
+pulseox client post --owner owner --repo repo --report GOOD \
+  --content "some exampe content"
+```
+
+or using python:
 
 ``` python
 >>> from pulseox.client import PulseOxClient
@@ -99,7 +107,13 @@ posted content to get a summary using something like:
 
 The specification list is also saved on GitHub. So after you have
 written the summary at least once, you can read the summary remotely
-via something like:
+using the pulseox command line interface:
+```
+pulseox check rdashboard \
+  --token YOUR_GITHUB_PAT --owner owner --repo repo
+```
+
+or in python via:
 
 ``` python
 >>> dashboard = PulseOxDashboard(

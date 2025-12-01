@@ -99,7 +99,7 @@ def example_with_pulseox_client():
             acceptable_tokens=["my-test-token"],
             repo_root=temp_dir
         )
-        server.start(host="127.0.0.1", port=5001, threaded=True)
+        server.start(host="127.0.0.1", threaded=True)
         time.sleep(0.5)  # Give server time to start
 
         try:
