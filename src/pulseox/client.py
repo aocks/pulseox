@@ -2,13 +2,15 @@
 """
 
 from datetime import datetime, timezone
+import os
 from typing import Annotated, Literal
 
 import requests
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from pulseox.specs import (ValidationError, GitHubAPIError,
-                           JOB_REPORT, make_dt_formatter)
+                           JOB_REPORT, make_dt_formatter, create_metadata,
+                           DEFAULT_BASE_URL)
 from pulseox.generic_backend import make_backend
 
 
@@ -19,13 +21,15 @@ class PulseOxClient(BaseModel):
     token: Annotated[str, Field(exclude=True, default='', description=(
         'GitHub personal access token to access repo.'))]
 
-    show_tz: Annotated[str, Field(default='US/Eastern', description=(
+    show_tz: Annotated[str, Field(default=os.environ.get(
+        'TZ', 'US/Eastern'), description=(
         'String name of timezone to display for datetimes'))]
 
     git_executable: Annotated[str, Field(default='/usr/bin/git', description=(
         'Path to git executable for local git repos'))]
 
-    _base_url: str = "https://api.github.com"
+    _base_url: str = PrivateAttr(default_factory=lambda: (
+        os.environ.get('DEFAULT_PULSEOX_URL', DEFAULT_BASE_URL)))
 
     def post(
         self,
@@ -56,8 +60,7 @@ class PulseOxClient(BaseModel):
         self._validate_post_params(
             owner, repo, path_to_file, content, report)
 
-        metadata = self._create_metadata(
-            path_to_file, report, note)
+        metadata = create_metadata(path_to_file, report, note, self.show_tz)
         full_content = f"{content}\n\n{metadata}"
 
         backend = make_backend(
@@ -95,41 +98,3 @@ class PulseOxClient(BaseModel):
                 f"report must be one of {JOB_REPORT}, "
                 f"got: {report}"
             )
-
-    def _create_metadata(
-        self,
-        path_to_file: str,
-        report: Literal[JOB_REPORT],
-        note: str
-    ) -> str:
-        """Create metadata section for the file.
-
-        Args:
-            path_to_file: Path to determine file format
-            report: Report code
-            note: Optional note
-
-        Returns:
-            Formatted metadata string
-        """
-        timestamp = make_dt_formatter(self.show_tz)(
-            datetime.now(timezone.utc).isoformat())
-
-        if path_to_file.endswith('.md'):
-            header = "# Metadata"
-        elif path_to_file.endswith('.org'):
-            header = "* Metadata"
-        else:
-            # Default to markdown for unknown extensions
-            header = "# Metadata"
-
-        metadata_lines = [
-            header,
-            f"- report: {report}",
-            f"- updated: {timestamp}",
-        ]
-
-        if note:
-            metadata_lines.append(f"- note: {note}")
-
-        return "\n".join(metadata_lines)

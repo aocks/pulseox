@@ -3,16 +3,18 @@
 
 import logging as rawLogger
 from datetime import datetime, UTC
+import os
 from typing import List, Optional, Annotated, Dict, Union, Tuple, Any
 
 import notifiers
 import requests
-from pydantic import BaseModel, Field, SkipValidation
+from pydantic import BaseModel, Field, SkipValidation, PrivateAttr
 
 
 from pulseox.specs import (VALID_MODES, VALID_STATUSES, JOB_REPORT,
                            ValidationError, GitHubAPIError, PulseOxSpec,
-                           make_dt_formatter)
+                           make_dt_formatter, create_metadata,
+                           format_response_error, DEFAULT_BASE_URL)
 from pulseox.github import download_github_file
 from pulseox.generic_backend import make_backend
 
@@ -155,7 +157,7 @@ class PulseOxSummary(BaseModel):
         else:
             raise ValidationError(f"Invalid mode in format_link: {mode}")
         return link
-    
+
 
 class PulseOxDashboard(BaseModel):
     """Dashboard for monitoring files in repositories (GitHub or local git).
@@ -194,9 +196,10 @@ class PulseOxDashboard(BaseModel):
         exclude=True, default=None, description=(
             'Dictionary where keys are providers and values are'
             ' dictionaries of keyword args for that notifier.'))]
-        
 
-    _base_url: str = "https://api.github.com"
+    _base_url: str = PrivateAttr(default_factory=lambda: (
+        os.environ.get('DEFAULT_PULSEOX_URL', DEFAULT_BASE_URL)))
+
     _latest_response: Annotated[
         Optional[SkipValidation[requests.Response]], Field(
             description=('Latest response object from interacting with'
@@ -240,8 +243,9 @@ class PulseOxDashboard(BaseModel):
 
     def compute_summary(
         self,
-        mode: str = 'md'
-    ) -> str:
+        mode: str = 'md',
+        extra_text: str = None,
+        show_tz: str = 'US/Eastern') -> str:
         """Compute summary field with summary of all monitored files.
 
         Args:
@@ -286,6 +290,10 @@ class PulseOxDashboard(BaseModel):
         self.changes = self.compute_summary_changes(
             self.previous_summary, self.summary)
         self.summary.format_text(change_dict=self.changes)
+        if extra_text:
+            self.summary.text += extra_text
+        self.summary.text += '\n\n' + create_metadata(
+            '.' + mode, show_tz=show_tz)
         return self
 
     def maybe_notify_changes(self, title=None, project_root=''):
@@ -346,7 +354,7 @@ class PulseOxDashboard(BaseModel):
                 sdict[item.path] = change
 
         return change_dict
-    
+
     def write_summary(self, path_to_summary: str = 'summary.md',
                       path_to_summary_json: Optional[str] = None,
                       force_refresh=False,
@@ -397,3 +405,22 @@ class PulseOxDashboard(BaseModel):
             self.maybe_notify_changes(title=f'Changes for {link}',
                                       project_root=project_root)
         return self
+
+    def format_response_error(self, response=None) -> Optional[str]:
+        """Format an error response as text.
+
+        :param response=None:  Optional response object (we use
+                               self._latest_response if not provided).
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        :return:  None if there is no error indicated by response or
+                  a string description of the error.
+
+        ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
+
+        PURPOSE:  Format error information for the user.
+
+        """
+        response = response or getattr(self, '_latest_response', None)
+        return format_response_error(response)

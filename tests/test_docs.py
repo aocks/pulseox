@@ -15,7 +15,7 @@ from pulseox.specs import PulseOxSpec
 from pulseox.client import PulseOxClient
 from pulseox.dashboard import PulseOxDashboard
 from pulseox.test_tools.mock_github_server import MockGitHubServer
-
+from pulseox.test_tools import patches
 
 class TestDocs:
 
@@ -24,6 +24,7 @@ class TestDocs:
     _server = None
     _base_url = None
     _prev_base_urls = None
+    
 
     @classmethod
     def setup_class(cls):
@@ -36,15 +37,11 @@ class TestDocs:
             cls._server = MockGitHubServer(
                 acceptable_tokens=cls._tokens,
                 repo_root=cls._tmpdir)
-            cls._server.start(host='127.0.0.1', port=5001,
-                              threaded=True)
+            cls._server.start(host='127.0.0.1', threaded=True)
             time.sleep(0.5)  # Give server time to start
             cls._base_url = cls._server.get_base_url()
             print(f'Start test GitHub server at {cls._base_url}')
-        cls._prev_base_url = {'client': PulseOxClient._base_url,
-                              'dashboard': PulseOxDashboard._base_url}
-        PulseOxClient._base_url = cls._base_url
-        PulseOxDashboard._base_url = cls._base_url
+        patches.EnvPatcher.patch('DEFAULT_PULSEOX_URL', cls._base_url)
 
     @classmethod
     def teardown_class(cls):
@@ -52,6 +49,7 @@ class TestDocs:
         shutil.rmtree(cls._tmpdir)
         cls._server = None
         cls._tmpdir = None
+        patches.EnvPatcher.unpatch()
 
     def test_readme(self):
         fname = os.path.join(os.path.dirname(__file__), '..', 'README.md')

@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import os
+import socket
 import subprocess
 import threading
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from typing import List, Optional, Dict, Any
 from wsgiref.simple_server import make_server, WSGIServer
 
 from flask import Flask, request, jsonify
+
 
 
 class MockGitHubServer:
@@ -385,6 +387,11 @@ class MockGitHubServer:
         cmd = ["update-ref", f"refs/heads/{branch}", new_sha]
         result = self._git(*cmd, check=False)
 
+        # Make sure to clean tree after the patch
+        clean_result = self._git(*["reset", "HEAD", "--hard"])
+        if clean_result.returncode != 0:
+            raise ValueError('Unable to clean tree.')
+
         if result.returncode != 0:
             return jsonify({
                 "message": f"Failed to update reference: {result.stderr}"
@@ -614,6 +621,7 @@ class MockGitHubServer:
                 cmd.extend(["-p", parent])
 
             result = self._git(*cmd, env=env, check=True)
+            
             commit_sha = result.stdout.strip()
 
             parent_objects = [
@@ -653,7 +661,14 @@ class MockGitHubServer:
                 "message": f"Failed to create commit: {str(e)}"
             }), 500
 
-    def start(self, host: str = "127.0.0.1", port: int = 5000, threaded: bool = True):
+    @staticmethod
+    def get_free_port():
+        sock = socket.socket()
+        sock.bind(('', 0))
+        return sock.getsockname()[1]
+        
+    def start(self, host: str = "127.0.0.1", port: Optional[int] = None,
+              threaded: bool = True):
         """Start the mock GitHub server.
 
         Args:
@@ -662,6 +677,7 @@ class MockGitHubServer:
             threaded: If True, run in a separate thread (non-blocking).
                      If False, run in the main thread (blocking).
         """
+        port = port or self.get_free_port()
         if self.server is not None:
             raise RuntimeError("Server is already running")
 
@@ -696,7 +712,7 @@ class MockGitHubServer:
         """Get the base URL for the server.
 
         Returns:
-            Base URL string (e.g., "http://127.0.0.1:5000").
+            Base URL string (e.g., "http://127.0.0.1:56789").
         """
         if self.server is None:
             raise RuntimeError("Server is not running")
