@@ -1,14 +1,13 @@
 """Basic specifications and common classes for PulseOx.
 """
 
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union, Annotated, Literal
 import re
 
 from dateutil import parser as dateparser
 from croniter import croniter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import pytz
 
 from pulseox.generic_backend import make_backend
@@ -30,18 +29,29 @@ COMMON_TIMEZONES = {
 
 
 def parse_dt(value):
+    """Parse a datetime string, understanding common US timezone names."""
     dt = dateparser.parse(value, tzinfos=COMMON_TIMEZONES)
     return dt
-    
 
-def make_dt_formatter(show_tz, fmt='%Y-%m-%d %H:%M %Z') -> str:
+
+def make_dt_formatter(show_tz, fmt='%Y-%m-%d %H:%M %Z'):
+    """Return a function formatting datetimes in the `show_tz` timezone.
+
+    Args:
+        show_tz: String name of a timezone (e.g., 'US/Eastern').
+        fmt:     strftime format string for the output.
+
+    Returns:
+        A function taking a datetime or datetime string and returning
+        it formatted as a string in the `show_tz` timezone.
+    """
     tzinfo = pytz.timezone(show_tz)
 
     def format_dt(value: Union[str, datetime]):
         if value in (None, '', 'N/A', 'NA'):
             return str(value)
         if isinstance(value, str):
-            value = dateparser.parse(value)
+            value = parse_dt(value)
         elif isinstance(value, datetime):
             pass
         else:
@@ -65,7 +75,7 @@ def format_response_error(response) -> Optional[str]:
     PURPOSE:  Format error information for the user.
 
     """
-    
+
     if not response:
         return None
     if response.status_code in (200, 201):
@@ -136,6 +146,9 @@ class PulseOxSpec(BaseModel):
         path:     Path to the file in the repository
         schedule: Either a datetime.timedelta or a cron string specifying
                   the expected update frequency
+        grace_period: Optional datetime.timedelta. If provided, an item
+                  is not considered outside its schedule until the
+                  grace period has passed beyond the scheduled deadline.
 
     Raises:
         ValidationError: If path is empty or schedule is invalid
@@ -145,11 +158,26 @@ class PulseOxSpec(BaseModel):
     repo: str
     path: str
     schedule: Union[timedelta, str]
+    grace_period: Annotated[Optional[timedelta], Field(
+        default=None, description=(
+            'Optional grace period as a timedelta. If provided, an item'
+            ' is not considered outside its schedule (i.e., MISSING)'
+            ' until the grace period has passed beyond the scheduled'
+            ' deadline. Must be non-negative.'))]
     note: Optional[str] = None
     report: Annotated[Literal[JOB_REPORT], Field(
         default='NOT_REPORTED', description=(
             'What the job reports as its state.'))]
     updated: Optional[str] = None
+
+    @field_validator('grace_period')
+    @classmethod
+    def _check_grace_period(cls, value):
+        """Verify that grace_period is non-negative (if provided)."""
+        if value is not None and value < timedelta(0):
+            raise ValueError(
+                f'grace_period must be non-negative, got: {value}')
+        return value
 
     def update(self, token: Optional[str] = None,
                base_url: str = "https://api.github.com",
@@ -207,19 +235,29 @@ class PulseOxSpec(BaseModel):
         self,
         updated_str: Optional[str] = None,
         schedule: Optional[Union[timedelta, str]] = None,
+        grace_period: Optional[timedelta] = None,
     ) -> bool:
         """Check if update time is within the schedule.
 
         Args:
             updated_str: ISO format timestamp string
             schedule: timedelta or cron string
+            grace_period: Optional timedelta overriding self.grace_period.
+                          If set (on self or here), the item is still
+                          considered within schedule until the grace
+                          period has passed beyond the scheduled deadline.
 
         Returns:
-            True if within schedule, False otherwise
+            True if within schedule (including any grace period),
+            False otherwise
         """
         updated_str = updated_str or self.updated
-        schedule = schedule or self.schedule
-        
+        schedule = schedule if schedule is not None else self.schedule
+        if grace_period is None:
+            grace_period = self.grace_period
+        if grace_period is None:
+            grace_period = timedelta(0)
+
         if not updated_str:
             return False
 
@@ -234,15 +272,16 @@ class PulseOxSpec(BaseModel):
 
         # For timedelta schedules
         if isinstance(schedule, timedelta):
-            return (now - updated) <= schedule
+            return (now - updated) <= (schedule + grace_period)
         if isinstance(schedule, str):
             # For cron strings, calculate next expected run time
             # based on the last update
             try:
                 cron = croniter(schedule, updated)
                 next_run = cron.get_next(datetime)
-                # If we're past the next expected run, it's missing
-                return now <= next_run
+                # If we're past the next expected run (plus any grace
+                # period), it's missing
+                return now <= (next_run + grace_period)
             except (ValueError, KeyError) as e:
                 # Invalid cron or other error, be conservative
                 raise ValidationError(f"Failed to parse cron schedule: {e}"

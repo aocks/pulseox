@@ -127,14 +127,14 @@ class TestGit:
         change_pattern = (
             r'# Changes\s+'
             r'- \[quick_example\.md\]\(quick_example\.md\)'
-            r' MISSING --> OK \d{4}-\d{2}-\d{2} \d{2}:\d{2} EST\s+')
+            r' MISSING --> OK \d{4}-\d{2}-\d{2} \d{2}:\d{2} E[SD]T\s+')
         main_pattern = (
             r'# MISSING\s+'
             r'- \[long_example\.md\]\(long_example\.md\)'
             r' File not found: long_example\.md.*?\s+'
             r'# OK\s+'
             r'- \[quick_example\.md\]\(quick_example\.md\)'
-            r' \d{4}-\d{2}-\d{2} \d{2}:\d{2} EST')
+            r' \d{4}-\d{2}-\d{2} \d{2}:\d{2} E[SD]T')
 
         mtch = re.search(change_pattern + main_pattern,
                          dashboard.summary.text, re.MULTILINE | re.DOTALL)
@@ -218,7 +218,8 @@ This is test content.
         assert spec.report == 'GOOD'
         assert spec.note == 'Test note'
         assert spec.updated  # Just check it's not None
-        assert 'EST' in spec.updated  # Check timezone is included
+        # Check timezone is included (EST in winter, EDT in summer)
+        assert re.search(r'E[SD]T', spec.updated)
 
     def test_git_backend_validation(self):
         """Test GitBackend validation."""
