@@ -217,7 +217,7 @@ class PulseOxDashboard(BaseModel):
 
         ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
 
-        :return:  Returns `self` to help in chaning.
+        :return:  Returns `self` to help in chaining.
 
         ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
 
@@ -228,7 +228,7 @@ class PulseOxDashboard(BaseModel):
                   like
 
           response = PulseOxDashboard(token=token,owner=owner,repo=repo
-                     ).get_remote_data.write_summary()
+                     ).get_remote_data().write_summary()
 
         """
         content = download_github_file(self.token, self.owner,
@@ -282,7 +282,10 @@ class PulseOxDashboard(BaseModel):
                 if spec.is_within_schedule():
                     if spec.report == 'GOOD':  # within schedule and GOOD
                         status['OK'][spec.path] = spec
-                else:  # within schedule but not GOOD or ERROR
+                    # NOTE: within schedule but NOT_REPORTED falls
+                    # through and appears in no section (see issue
+                    # discussed with maintainer).
+                else:  # not within schedule (and not ERROR)
                     status['MISSING'][spec.path] = spec
 
         self.previous_summary = self.summary

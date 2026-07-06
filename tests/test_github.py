@@ -88,14 +88,14 @@ class GenericGitHubTester:
         change_pattern = (
             r'# Changes\s+'
             r'- \[quick_example\.md\]\(quick_example\.md\)'
-            r' MISSING --> OK \d{4}-\d{2}-\d{2} \d{2}:\d{2} EST\s+')
+            r' MISSING --> OK \d{4}-\d{2}-\d{2} \d{2}:\d{2} E[SD]T\s+')
         main_pattern = (
             r'# MISSING\s+'
             r'- \[long_example\.md\]\(long_example\.md\)'
             r' error: \(status_code=404\) NOT FOUND None\s+'
             r'# OK\s+'
             r'- \[quick_example\.md\]\(quick_example\.md\)'
-            r' \d{4}-\d{2}-\d{2} \d{2}:\d{2} EST')
+            r' \d{4}-\d{2}-\d{2} \d{2}:\d{2} E[SD]T')
 
         mtch = re.search(change_pattern + main_pattern,
                          text, re.MULTILINE)
@@ -187,4 +187,3 @@ class TestGitHubWithCLI(GenericGitHubTester):
 
     def test_lookup(self):
         return self.check_lookup()
-    
